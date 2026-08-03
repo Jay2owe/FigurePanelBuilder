@@ -8,7 +8,7 @@
  */
 package fpb;
 
-import ij.IJ;
+import fpb.ui.FPBWizard;
 import ij.plugin.PlugIn;
 
 /** ImageJ entry point for Figure Panel Builder. */
@@ -16,6 +16,6 @@ public class FPB_ implements PlugIn {
 
     @Override
     public void run(String arg) {
-        IJ.showMessage("Figure Panel Builder", "Scaffold only — not yet implemented.");
+        FPBWizard.showWizard();
     }
 }
