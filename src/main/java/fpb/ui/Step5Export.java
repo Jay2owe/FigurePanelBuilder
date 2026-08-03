@@ -9,6 +9,7 @@
 package fpb.ui;
 
 import fpb.QuickGrid;
+import fpb.FPBMacroOptions;
 import fpb.figure.CalibrationCheck;
 import fpb.figure.FigureWriter;
 import fpb.figure.PanelConfig;
@@ -23,6 +24,8 @@ import fpb.render.DisplayRange;
 import fpb.render.FPBRenderer;
 import fpb.svg.SvgWriter;
 import fpb.ui.chooser.RowImage;
+import ij.IJ;
+import ij.plugin.frame.Recorder;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -208,6 +211,7 @@ public final class Step5Export implements WizardStep {
                     JOptionPane.QUESTION_MESSAGE);
             if (result != JOptionPane.OK_OPTION) return;
         }
+        recordMacroCall(settings);
         progress.setValue(0);
         progress.setString("Starting export");
         summary.setText("");
@@ -262,6 +266,18 @@ public final class Step5Export implements WizardStep {
     private void cancelExport() {
         SwingWorker<ExportResult, Void> current = worker;
         if (current != null) current.cancel(true);
+    }
+
+    private void recordMacroCall(Settings settings) {
+        if (!Recorder.record) return;
+        try {
+            Recorder.recordString("run(\"" + FPBMacroOptions.PLUGIN_NAME
+                    + "\", \"" + FPBMacroOptions.fromContext(context, settings)
+                    .toMacroOptions() + "\");\n");
+        } catch (IllegalArgumentException ex) {
+            IJ.log("Figure Panel Builder: Could not record macro options: "
+                    + ex.getMessage());
+        }
     }
 
     private void openCompletedFolder() {
@@ -651,6 +667,42 @@ public final class Step5Export implements WizardStep {
             this.writeSvg = writeSvg;
             this.writeIndividualPanels = writeIndividualPanels;
             this.writeRecords = writeRecords;
+        }
+
+        public File outputRoot() {
+            return outputRoot;
+        }
+
+        public String figureName() {
+            return figureName;
+        }
+
+        public int dpi() {
+            return dpi;
+        }
+
+        public int exportScale() {
+            return exportScale;
+        }
+
+        public boolean writePng() {
+            return writePng;
+        }
+
+        public boolean writeTiff() {
+            return writeTiff;
+        }
+
+        public boolean writeSvg() {
+            return writeSvg;
+        }
+
+        public boolean writeIndividualPanels() {
+            return writeIndividualPanels;
+        }
+
+        public boolean writeRecords() {
+            return writeRecords;
         }
     }
 
