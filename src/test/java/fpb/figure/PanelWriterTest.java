@@ -124,6 +124,31 @@ public class PanelWriterTest {
         assertTrue(output.uncalibratedImages().isEmpty());
     }
 
+    @Test
+    public void exportScaleDoublesFigureDimensions() throws Exception {
+        File source = writeSource("scaled-source.png", Color.BLUE, 32, 24);
+        PanelRecord record = record(source, "Control", "S1", "sec1",
+                "DAPI", 32, 24, 0.5,
+                CalibrationCheck.CalibrationSource.USER_ENTERED);
+        PanelConfig oneX = PanelConfig.builder()
+                .cellSizePx(80)
+                .scaleBarLengthUm(5.0)
+                .channelOrder(Arrays.asList("DAPI"))
+                .exportScale(1)
+                .build();
+        PanelConfig twoX = oneX.toBuilder().exportScale(2).build();
+
+        FigureWriter.FigureOutput normal = new FigureWriter().writeFigure(
+                temp.getRoot(), "Scale One", Arrays.asList(record), oneX);
+        FigureWriter.FigureOutput scaled = new FigureWriter().writeFigure(
+                temp.getRoot(), "Scale Two", Arrays.asList(record), twoX);
+
+        BufferedImage normalImage = ImageIO.read(normal.figurePng());
+        BufferedImage scaledImage = ImageIO.read(scaled.figurePng());
+        assertEquals(normalImage.getWidth() * 2, scaledImage.getWidth());
+        assertEquals(normalImage.getHeight() * 2, scaledImage.getHeight());
+    }
+
     private File writeSource(String name, Color color, int width, int height)
             throws IOException {
         File file = temp.newFile(name);

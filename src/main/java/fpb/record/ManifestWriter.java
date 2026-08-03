@@ -34,7 +34,8 @@ public final class ManifestWriter {
             "HeightPx", "PixelWidthUm", "PixelHeightUm", "CalibrationSource",
             "DisplayMin", "DisplayMax", "RangeSource", "ClippedLowPct",
             "ClippedHighPct", "StatisticName", "StatisticValue", "GroupMean",
-            "GroupRank", "SuggestedSubject", "ChosenSubject"));
+            "GroupRank", "SuggestedSubject", "ChosenSubject",
+            "SelectionMethod", "Grouping"));
 
     public File write(File manifest, List<Row> rows) throws IOException {
         if (manifest == null) throw new IllegalArgumentException("manifest is required");
@@ -83,17 +84,30 @@ public final class ManifestWriter {
         private final DisplayRange displayRange;
         private final double clippedLowPct;
         private final double clippedHighPct;
+        private final String rangeSource;
         private final String statisticName;
         private final double statisticValue;
         private final double groupMean;
         private final int groupRank;
         private final String suggestedSubject;
         private final String chosenSubject;
+        private final String selectionMethod;
+        private final String grouping;
 
         public Row(PanelRecord panel, String lut, File panelFile,
                 DisplayRange displayRange, ClipReport.ChannelClip clip,
                 String statisticName, double statisticValue, double groupMean,
                 int groupRank, String suggestedSubject, String chosenSubject) {
+            this(panel, lut, panelFile, displayRange, clip, "locked",
+                    statisticName, statisticValue, groupMean, groupRank,
+                    suggestedSubject, chosenSubject, "representative", "metadata");
+        }
+
+        public Row(PanelRecord panel, String lut, File panelFile,
+                DisplayRange displayRange, ClipReport.ChannelClip clip,
+                String rangeSource, String statisticName, double statisticValue,
+                double groupMean, int groupRank, String suggestedSubject,
+                String chosenSubject, String selectionMethod, String grouping) {
             if (panel == null) throw new IllegalArgumentException("panel is required");
             if (displayRange == null || !displayRange.isValid()) {
                 throw new IllegalStateException("A locked display range is required for manifest.csv.");
@@ -104,12 +118,15 @@ public final class ManifestWriter {
             this.displayRange = displayRange;
             this.clippedLowPct = clip == null ? Double.NaN : clip.lowPercent();
             this.clippedHighPct = clip == null ? Double.NaN : clip.highPercent();
+            this.rangeSource = valueOrNotAvailable(rangeSource);
             this.statisticName = valueOrNotAvailable(statisticName);
             this.statisticValue = statisticValue;
             this.groupMean = groupMean;
             this.groupRank = groupRank;
             this.suggestedSubject = valueOrNotAvailable(suggestedSubject);
             this.chosenSubject = valueOrNotAvailable(chosenSubject);
+            this.selectionMethod = valueOrNotAvailable(selectionMethod);
+            this.grouping = valueOrNotAvailable(grouping);
         }
 
         private List<String> fields() {
@@ -130,7 +147,7 @@ public final class ManifestWriter {
                     calibrationSource(panel.calibrationSource()),
                     String.valueOf(displayRange.min()),
                     String.valueOf(displayRange.max()),
-                    "locked",
+                    rangeSource,
                     number(clippedLowPct),
                     number(clippedHighPct),
                     statisticName,
@@ -138,7 +155,9 @@ public final class ManifestWriter {
                     number(groupMean),
                     groupRank > 0 ? String.valueOf(groupRank) : "not available",
                     suggestedSubject,
-                    chosenSubject);
+                    chosenSubject,
+                    selectionMethod,
+                    grouping);
         }
     }
 

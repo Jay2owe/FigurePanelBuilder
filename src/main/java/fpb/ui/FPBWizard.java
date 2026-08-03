@@ -8,6 +8,7 @@
  */
 package fpb.ui;
 
+import fpb.QuickGrid;
 import fpb.meta.MetadataTable;
 import fpb.figure.PanelConfig;
 import fpb.figure.PanelRecord;
@@ -82,8 +83,7 @@ public final class FPBWizard {
                 new Step2Channels(context),
                 chooserStep,
                 new Step4Layout(context),
-                new PlaceholderStep("Export", "Build figure",
-                        "Export arrives in a later stage.")
+                new Step5Export(context)
         };
 
         stepButtons = new JPanel(new GridLayout(1, steps.length, 0, 0));
@@ -174,9 +174,32 @@ public final class FPBWizard {
     }
 
     void goToQuickGrid() {
-        context.quickGridRequested = true;
-        maxCompletedIndex = Math.max(maxCompletedIndex, 3);
-        showStep(3);
+        if (context.folder == null) {
+            JOptionPane.showMessageDialog(dialog,
+                    "Choose an image folder before using Quick grid.",
+                    "Figure Panel Builder", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        try {
+            QuickGrid.Result result = QuickGrid.run(context.folder,
+                    context.recursive);
+            context.quickGridRequested = true;
+            context.metadataTable = result.table();
+            context.chooserData = result.chooserData();
+            context.selectedRowsByGroup = result.selectedRowsByGroup();
+            context.layoutChannelRequests =
+                    new ArrayList<FPBRenderer.ChannelRequest>(
+                            result.channelRequests());
+            context.panelConfig = result.panelConfig();
+            context.groupLayoutRows = result.panelConfig().groupLayoutRows();
+            context.layoutPanelRecords =
+                    new ArrayList<PanelRecord>();
+            maxCompletedIndex = Math.max(maxCompletedIndex, 3);
+            showStep(3);
+        } catch (java.io.IOException failure) {
+            JOptionPane.showMessageDialog(dialog, failure.getMessage(),
+                    "Figure Panel Builder", JOptionPane.INFORMATION_MESSAGE);
+        }
     }
 
     private void advance() {
@@ -265,43 +288,6 @@ public final class FPBWizard {
             this.include = include;
             this.name = name;
             this.colour = colour;
-        }
-    }
-
-    private static final class PlaceholderStep implements WizardStep {
-        private final String title;
-        private final String nextTitle;
-        private final JPanel panel;
-
-        PlaceholderStep(String title, String nextTitle, String text) {
-            this.title = title;
-            this.nextTitle = nextTitle;
-            panel = new JPanel(new BorderLayout());
-            panel.setBorder(BorderFactory.createEmptyBorder(14, 16, 12, 16));
-            panel.add(new JLabel(text), BorderLayout.NORTH);
-        }
-
-        @Override
-        public String title() {
-            return title;
-        }
-
-        @Override
-        public String nextTitle() {
-            return nextTitle;
-        }
-
-        @Override
-        public JComponent component() {
-            return panel;
-        }
-
-        @Override
-        public void onShow() {}
-
-        @Override
-        public boolean canAdvance() {
-            return true;
         }
     }
 }
