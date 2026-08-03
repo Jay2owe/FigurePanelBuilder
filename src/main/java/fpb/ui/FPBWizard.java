@@ -10,6 +10,7 @@ package fpb.ui;
 
 import fpb.meta.MetadataTable;
 import fpb.render.ChannelColour;
+import fpb.ui.chooser.Step3Chooser;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -56,6 +57,14 @@ public final class FPBWizard {
         });
         dialog.getContentPane().setLayout(new BorderLayout());
 
+        Step3Chooser chooserStep = new Step3Chooser(context);
+        chooserStep.setAdvanceStateListener(new Runnable() {
+            @Override
+            public void run() {
+                updateButtons();
+            }
+        });
+
         steps = new WizardStep[] {
                 new Step1Images(context, new Runnable() {
                     @Override
@@ -64,8 +73,7 @@ public final class FPBWizard {
                     }
                 }),
                 new Step2Channels(context),
-                new PlaceholderStep("Choose images", "Layout",
-                        "Choose images arrives in the next stage."),
+                chooserStep,
                 new PlaceholderStep("Layout", "Export",
                         "Layout arrives in a later stage."),
                 new PlaceholderStep("Export", "Build figure",
@@ -193,6 +201,8 @@ public final class FPBWizard {
     private void updateButtons() {
         backButton.setVisible(backVisibleForStep(stepIndex));
         nextButton.setText(primaryButtonLabel(steps[stepIndex], stepIndex == steps.length - 1));
+        nextButton.setEnabled(!(steps[stepIndex] instanceof Step3Chooser)
+                || steps[stepIndex].canAdvance());
         for (int i = 0; i < jumpButtons.length; i++) {
             jumpButtons[i].setEnabled(i <= maxCompletedIndex);
             jumpButtons[i].setBackground(i == stepIndex ? new Color(229, 236, 242) : null);

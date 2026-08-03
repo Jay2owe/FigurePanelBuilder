@@ -73,7 +73,7 @@ public final class RowImage {
             g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
                     RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
             paintBackground(g, checked, selected);
-            paintSpinePlaceholder(g, row, checked, selected);
+            paintSpine(g, row, checked, selected);
             paintTiles(g, panel, checked);
         } finally {
             g.dispose();
@@ -88,12 +88,18 @@ public final class RowImage {
         g.drawLine(0, layout.rowHeight() - 1, layout.rowWidth(), layout.rowHeight() - 1);
     }
 
-    private static void paintSpinePlaceholder(Graphics2D g, SubjectRow row,
+    private static void paintSpine(Graphics2D g, SubjectRow row,
             Layout layout, boolean selected) {
         int x = layout.padding();
         int y = layout.padding();
         int width = layout.spineWidth() - layout.padding() * 2;
         int height = layout.tileHeight();
+        BufferedImage spine = row.spineImage(width, height, selected);
+        if (spine != null) {
+            g.drawImage(spine, x, y, width, height, null);
+            return;
+        }
+
         g.setColor(new Color(239, 242, 245));
         g.fillRect(x, y, width, height);
         g.setColor(BORDER);
@@ -173,13 +179,24 @@ public final class RowImage {
         private final String subject;
         private final int imageIndex;
         private final boolean suggested;
+        private final SpinePainter.GroupData spineData;
+        private transient BufferedImage unchosenSpine;
+        private transient BufferedImage chosenSpine;
+        private transient int spineWidth;
+        private transient int spineHeight;
 
         public SubjectRow(String group, String subject, int imageIndex, boolean suggested) {
+            this(group, subject, imageIndex, suggested, null);
+        }
+
+        public SubjectRow(String group, String subject, int imageIndex, boolean suggested,
+                SpinePainter.GroupData spineData) {
             if (imageIndex < 0) throw new IllegalArgumentException("imageIndex is negative");
             this.group = clean(group, "group");
             this.subject = clean(subject, "subject");
             this.imageIndex = imageIndex;
             this.suggested = suggested;
+            this.spineData = spineData;
         }
 
         public String group() {
@@ -196,6 +213,33 @@ public final class RowImage {
 
         public boolean suggested() {
             return suggested;
+        }
+
+        public SpinePainter.GroupData spineData() {
+            return spineData;
+        }
+
+        private synchronized BufferedImage spineImage(int width, int height,
+                boolean chosen) {
+            if (spineData == null) return null;
+            if (width != spineWidth || height != spineHeight) {
+                unchosenSpine = null;
+                chosenSpine = null;
+                spineWidth = width;
+                spineHeight = height;
+            }
+            if (chosen) {
+                if (chosenSpine == null) {
+                    chosenSpine = SpinePainter.paintToImage(spineData, subject, true,
+                            width, height);
+                }
+                return chosenSpine;
+            }
+            if (unchosenSpine == null) {
+                unchosenSpine = SpinePainter.paintToImage(spineData, subject, false,
+                        width, height);
+            }
+            return unchosenSpine;
         }
 
         @Override
