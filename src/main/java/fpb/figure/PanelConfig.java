@@ -65,6 +65,7 @@ public final class PanelConfig {
     private final double labelFracY;
     private final double scaleBarFracX;
     private final double scaleBarFracY;
+    private final List<List<String>> groupLayoutRows;
 
     private PanelConfig(Builder b) {
         this.annotateIndividualPanels = b.annotateIndividualPanels;
@@ -98,6 +99,7 @@ public final class PanelConfig {
         this.labelFracY = clampFrac(b.labelFracY);
         this.scaleBarFracX = clampFrac(b.scaleBarFracX);
         this.scaleBarFracY = clampFrac(b.scaleBarFracY);
+        this.groupLayoutRows = copyRows(b.groupLayoutRows);
     }
 
     public static Builder builder() {
@@ -138,7 +140,8 @@ public final class PanelConfig {
                 .labelFracX(labelFracX)
                 .labelFracY(labelFracY)
                 .scaleBarFracX(scaleBarFracX)
-                .scaleBarFracY(scaleBarFracY);
+                .scaleBarFracY(scaleBarFracY)
+                .groupLayoutRows(groupLayoutRows);
     }
 
     public boolean createOverviewPanel() {
@@ -265,6 +268,14 @@ public final class PanelConfig {
         return scaleBarFracX >= 0.0 && scaleBarFracY >= 0.0;
     }
 
+    public List<List<String>> groupLayoutRows() {
+        return groupLayoutRows;
+    }
+
+    public boolean hasGroupLayoutRows() {
+        return !groupLayoutRows.isEmpty();
+    }
+
     private static int clamp(int value, int min, int max) {
         return Math.max(min, Math.min(max, value));
     }
@@ -272,6 +283,26 @@ public final class PanelConfig {
     private static double clampFrac(double value) {
         if (Double.isNaN(value) || value < 0.0) return -1.0;
         return Math.max(0.0, Math.min(1.0, value));
+    }
+
+    private static List<List<String>> copyRows(List<List<String>> rows) {
+        List<List<String>> out = new ArrayList<List<String>>();
+        if (rows != null) {
+            for (List<String> input : rows) {
+                List<String> row = new ArrayList<String>();
+                if (input != null) {
+                    for (String value : input) {
+                        if (value != null && !value.trim().isEmpty()) {
+                            row.add(value.trim());
+                        }
+                    }
+                }
+                if (!row.isEmpty()) {
+                    out.add(Collections.unmodifiableList(row));
+                }
+            }
+        }
+        return Collections.unmodifiableList(out);
     }
 
     public static final class Builder {
@@ -304,6 +335,8 @@ public final class PanelConfig {
         private double labelFracY = -1.0;
         private double scaleBarFracX = -1.0;
         private double scaleBarFracY = -1.0;
+        private List<List<String>> groupLayoutRows =
+                new ArrayList<List<String>>();
 
         public Builder createOverviewPanel(boolean value) {
             this.createOverviewPanel = value;
@@ -454,6 +487,11 @@ public final class PanelConfig {
 
         public Builder scaleBarFracY(double value) {
             this.scaleBarFracY = value;
+            return this;
+        }
+
+        public Builder groupLayoutRows(List<List<String>> rows) {
+            this.groupLayoutRows = copyRows(rows);
             return this;
         }
 

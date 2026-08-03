@@ -392,8 +392,18 @@ public final class Step3Chooser implements WizardStep, AutoCloseable {
 
     private void updateAdvanceState() {
         boolean ready = canAdvance();
+        if (ready) publishLayoutState();
         hint.setVisible(!ready);
         if (advanceStateListener != null) advanceStateListener.run();
+    }
+
+    private void publishLayoutState() {
+        if (context == null || data == null || rail == null) return;
+        context.chooserData = data;
+        context.selectedRowsByGroup =
+                new LinkedHashMap<String, RowImage.SubjectRow>(picksByGroup);
+        context.layoutChannelRequests =
+                new ArrayList<FPBRenderer.ChannelRequest>(rail.channelRequests());
     }
 
     private static String join(List<String> values) {

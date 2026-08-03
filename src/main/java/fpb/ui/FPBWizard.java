@@ -9,8 +9,13 @@
 package fpb.ui;
 
 import fpb.meta.MetadataTable;
+import fpb.figure.PanelConfig;
+import fpb.figure.PanelRecord;
+import fpb.render.FPBRenderer;
 import fpb.render.ChannelColour;
 import fpb.ui.chooser.Step3Chooser;
+import fpb.ui.chooser.RowImage;
+import fpb.ui.layout.Step4Layout;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -19,7 +24,9 @@ import java.awt.GridLayout;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -74,8 +81,7 @@ public final class FPBWizard {
                 }),
                 new Step2Channels(context),
                 chooserStep,
-                new PlaceholderStep("Layout", "Export",
-                        "Layout arrives in a later stage."),
+                new Step4Layout(context),
                 new PlaceholderStep("Export", "Build figure",
                         "Export arrives in a later stage.")
         };
@@ -238,6 +244,16 @@ public final class FPBWizard {
         public String zHandling = "Maximum projection";
         public List<ChannelSetting> channelSettings =
                 new ArrayList<ChannelSetting>();
+        public Step3Chooser.Data chooserData;
+        public Map<String, RowImage.SubjectRow> selectedRowsByGroup =
+                new LinkedHashMap<String, RowImage.SubjectRow>();
+        public List<FPBRenderer.ChannelRequest> layoutChannelRequests =
+                new ArrayList<FPBRenderer.ChannelRequest>();
+        public PanelConfig panelConfig;
+        public List<List<String>> groupLayoutRows =
+                new ArrayList<List<String>>();
+        public List<PanelRecord> layoutPanelRecords =
+                new ArrayList<PanelRecord>();
     }
 
     public static final class ChannelSetting {

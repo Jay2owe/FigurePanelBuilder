@@ -177,6 +177,9 @@ public final class PanelWriter {
         if (columns.isEmpty()) {
             throw new IllegalArgumentException("At least one output column is required.");
         }
+        if (config.hasGroupLayoutRows()) {
+            return renderGroupLayoutPanel(usable, columns, config, report);
+        }
 
         List<Row> rows = orderedRows(usable, config.groupRowsBy());
         if (rows.isEmpty()) {
@@ -425,6 +428,215 @@ public final class PanelWriter {
         } finally {
             g.dispose();
         }
+    }
+
+    private static BufferedImage renderGroupLayoutPanel(List<PanelRecord> records,
+            List<String> columns, PanelConfig config, WriteReport report) {
+        List<List<String>> layoutRows = normalizedGroupLayout(records,
+                config.groupLayoutRows());
+        if (layoutRows.isEmpty()) {
+            return renderGroupFallback(records, config, report);
+        }
+
+        Font headerFont = new Font(Font.SANS_SERIF, Font.BOLD,
+                config.channelFontSizePx());
+        Font rowFont = new Font(Font.SANS_SERIF, Font.PLAIN, 14);
+        Font groupFont = new Font(Font.SANS_SERIF, Font.BOLD,
+                config.groupFontSizePx());
+        BufferedImage scratch = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D sg = scratch.createGraphics();
+        List<List<GroupBlock>> blockRows = new ArrayList<List<GroupBlock>>();
+        int width = config.marginPx() * 2;
+        int height = config.marginPx() * 2;
+        try {
+            applyQualityHints(sg);
+            FontMetrics headerMetrics = sg.getFontMetrics(headerFont);
+            FontMetrics rowMetrics = sg.getFontMetrics(rowFont);
+            FontMetrics groupMetrics = sg.getFontMetrics(groupFont);
+            for (List<String> layoutRow : layoutRows) {
+                List<GroupBlock> blocks = new ArrayList<GroupBlock>();
+                int rowWidth = 0;
+                int rowHeight = 0;
+                for (String group : layoutRow) {
+                    GroupBlock block = createGroupBlock(group, records, columns,
+                            config, headerMetrics, rowMetrics, groupMetrics);
+                    if (block.rows.isEmpty()) continue;
+                    if (!blocks.isEmpty()) rowWidth += config.groupGapPx();
+                    rowWidth += block.width;
+                    rowHeight = Math.max(rowHeight, block.height);
+                    blocks.add(block);
+                }
+                if (!blocks.isEmpty()) {
+                    if (!blockRows.isEmpty()) height += config.rowGapPx();
+                    width = Math.max(width, rowWidth + config.marginPx() * 2);
+                    height += rowHeight;
+                    blockRows.add(blocks);
+                }
+            }
+        } finally {
+            sg.dispose();
+        }
+        if (blockRows.isEmpty()) {
+            return renderGroupFallback(records, config, report);
+        }
+
+        BufferedImage image = new BufferedImage(Math.max(1, width),
+                Math.max(1, height), BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = image.createGraphics();
+        try {
+            applyQualityHints(g);
+            g.setColor(PANEL_BG);
+            g.fillRect(0, 0, image.getWidth(), image.getHeight());
+
+            int y = config.marginPx();
+            for (int r = 0; r < blockRows.size(); r++) {
+                List<GroupBlock> blocks = blockRows.get(r);
+                int x = config.marginPx();
+                int rowHeight = 0;
+                for (GroupBlock block : blocks) rowHeight = Math.max(rowHeight, block.height);
+                for (GroupBlock block : blocks) {
+                    drawGroupBlock(g, block, x, y, columns, config, headerFont,
+                            rowFont, groupFont, report);
+                    x += block.width + config.groupGapPx();
+                }
+                y += rowHeight + config.rowGapPx();
+            }
+        } finally {
+            g.dispose();
+        }
+        return image;
+    }
+
+    private static BufferedImage renderGroupFallback(List<PanelRecord> records,
+            PanelConfig config, WriteReport report) {
+        PanelConfig fallback = config.toBuilder()
+                .groupLayoutRows(Collections.<List<String>>emptyList())
+                .build();
+        try {
+            return renderOverviewPanel(records, fallback, report);
+        } catch (IOException e) {
+            throw new IllegalStateException("Could not render group layout fallback", e);
+        }
+    }
+
+    private static GroupBlock createGroupBlock(String group, List<PanelRecord> records,
+            List<String> columns, PanelConfig config, FontMetrics headerMetrics,
+            FontMetrics rowMetrics, FontMetrics groupMetrics) {
+        List<PanelRecord> groupRecords = recordsForGroup(records, group);
+        List<Row> rows = rowsForGroup(groupRecords, group);
+        int cell = config.cellSizePx();
+        int rowLabelGap = rows.isEmpty() ? 0 : 6;
+        int rowLabelWidth = tightRowLabelWidth(rows, rowMetrics, cell);
+        if (rowLabelWidth <= 0) rowLabelGap = 0;
+        int headerHeight = config.channelHeaderVisible()
+                ? headerMetrics.getHeight() + 4 : 0;
+        int groupHeaderHeight = config.groupHeaderVisible()
+                ? groupMetrics.getHeight() + 4 : 0;
+        int colGap = config.innerColGapPx();
+        int rowGap = Math.min(config.innerColGapPx(), config.rowGapPx());
+        int width = rowLabelWidth + rowLabelGap + columns.size() * cell
+                + Math.max(0, columns.size() - 1) * colGap;
+        int height = groupHeaderHeight + headerHeight + rows.size() * cell
+                + Math.max(0, rows.size() - 1) * rowGap;
+        return new GroupBlock(group, rows, groupRecords, Math.max(1, width),
+                Math.max(1, height), rowLabelWidth, rowLabelGap,
+                headerHeight, groupHeaderHeight, rowGap);
+    }
+
+    private static void drawGroupBlock(Graphics2D g, GroupBlock block, int x, int y,
+            List<String> columns, PanelConfig config, Font headerFont,
+            Font rowFont, Font groupFont, WriteReport report) {
+        int cursorY = y;
+        if (config.groupHeaderVisible()) {
+            drawGroupLabel(g, block.group, x, cursorY, block.width,
+                    block.groupHeaderHeight, groupFont);
+            cursorY += block.groupHeaderHeight;
+        }
+        int x0 = x + block.rowLabelWidth + block.rowLabelGap;
+        if (config.channelHeaderVisible()) {
+            drawColumnHeaders(g, columns, x0, cursorY, config.cellSizePx(),
+                    config.innerColGapPx(), block.headerHeight, headerFont);
+            cursorY += block.headerHeight;
+        }
+
+        LinkedHashMap<String, PanelRecord> byKey =
+                new LinkedHashMap<String, PanelRecord>();
+        for (PanelRecord record : block.records) {
+            byKey.put(record.imageKey() + "\n" + record.outputName(), record);
+        }
+        for (int r = 0; r < block.rows.size(); r++) {
+            Row row = block.rows.get(r);
+            drawRowLabel(g, row.label, x, cursorY, block.rowLabelWidth,
+                    config.cellSizePx(), rowFont);
+            for (int c = 0; c < columns.size(); c++) {
+                int cellX = x0 + c * (config.cellSizePx() + config.innerColGapPx());
+                PanelRecord record = byKey.get(row.key + "\n" + columns.get(c));
+                drawCell(g, record, config, cellX, cursorY, config.cellSizePx(),
+                        report);
+            }
+            cursorY += config.cellSizePx() + block.rowGap;
+        }
+    }
+
+    private static List<Row> rowsForGroup(List<PanelRecord> records, String group) {
+        LinkedHashMap<String, Row> rows = new LinkedHashMap<String, Row>();
+        for (PanelRecord record : records) {
+            if (!record.group().equals(group)) continue;
+            Row existing = rows.get(record.imageKey());
+            if (existing == null) {
+                rows.put(record.imageKey(), new Row(record.imageKey(),
+                        record.imageLabel(), record.group(), record));
+            }
+        }
+        List<Row> out = new ArrayList<Row>(rows.values());
+        Collections.sort(out, new Comparator<Row>() {
+            @Override
+            public int compare(Row a, Row b) {
+                int subject = compareText(a.record.subject(), b.record.subject());
+                if (subject != 0) return subject;
+                int section = compareText(a.record.section(), b.record.section());
+                if (section != 0) return section;
+                return compareText(a.record.imageId(), b.record.imageId());
+            }
+        });
+        return out;
+    }
+
+    private static List<PanelRecord> recordsForGroup(List<PanelRecord> records,
+            String group) {
+        List<PanelRecord> out = new ArrayList<PanelRecord>();
+        for (PanelRecord record : records) {
+            if (record.group().equals(group)) out.add(record);
+        }
+        return out;
+    }
+
+    private static List<List<String>> normalizedGroupLayout(List<PanelRecord> records,
+            List<List<String>> requested) {
+        LinkedHashSet<String> present = new LinkedHashSet<String>();
+        for (PanelRecord record : records) present.add(record.group());
+        List<List<String>> rows = new ArrayList<List<String>>();
+        LinkedHashSet<String> used = new LinkedHashSet<String>();
+        if (requested != null) {
+            for (List<String> inputRow : requested) {
+                List<String> row = new ArrayList<String>();
+                if (inputRow != null) {
+                    for (String group : inputRow) {
+                        String clean = group == null ? "" : group.trim();
+                        if (present.contains(clean) && used.add(clean)) row.add(clean);
+                    }
+                }
+                if (!row.isEmpty()) rows.add(row);
+            }
+        }
+        for (String group : present) {
+            if (used.add(group)) {
+                List<String> row = new ArrayList<String>();
+                row.add(group);
+                rows.add(row);
+            }
+        }
+        return rows;
     }
 
     private static void writePng(BufferedImage image, File outputFile, int dpi)
@@ -952,6 +1164,34 @@ public final class PanelWriter {
             this.rowLabelGap = rowLabelGap;
             this.headerHeight = headerHeight;
             this.groupHeaderHeight = groupHeaderHeight;
+        }
+    }
+
+    private static final class GroupBlock {
+        final String group;
+        final List<Row> rows;
+        final List<PanelRecord> records;
+        final int width;
+        final int height;
+        final int rowLabelWidth;
+        final int rowLabelGap;
+        final int headerHeight;
+        final int groupHeaderHeight;
+        final int rowGap;
+
+        GroupBlock(String group, List<Row> rows, List<PanelRecord> records,
+                int width, int height, int rowLabelWidth, int rowLabelGap,
+                int headerHeight, int groupHeaderHeight, int rowGap) {
+            this.group = group;
+            this.rows = rows;
+            this.records = records;
+            this.width = width;
+            this.height = height;
+            this.rowLabelWidth = rowLabelWidth;
+            this.rowLabelGap = rowLabelGap;
+            this.headerHeight = headerHeight;
+            this.groupHeaderHeight = groupHeaderHeight;
+            this.rowGap = rowGap;
         }
     }
 
