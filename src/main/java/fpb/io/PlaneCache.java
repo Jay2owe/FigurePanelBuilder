@@ -130,7 +130,8 @@ public final class PlaneCache {
             return pixels.clone();
         }
 
-        short[] pixelsUnsafe() {
+        /** Internal fast path for render code; callers must not mutate the returned array. */
+        public short[] pixelsUnsafe() {
             return pixels;
         }
     }
