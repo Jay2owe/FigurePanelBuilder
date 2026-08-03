@@ -1,0 +1,19 @@
+# Build output
+target/
+tools-build/
+.mvn/wrapper/maven-dist/
+
+# IDE
+.idea/
+*.iml
+.project
+.classpath
+.settings/
+
+# Temporary files
+*.tmp.*
+
+# Operating system
+.DS_Store
+Thumbs.db
+desktop.ini
