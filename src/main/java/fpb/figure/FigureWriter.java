@@ -8,6 +8,7 @@
  */
 package fpb.figure;
 
+import fpb.record.OutputTree;
 import fpb.util.IoUtils;
 
 import javax.imageio.ImageIO;
@@ -22,8 +23,8 @@ import java.util.List;
 /** Writes an assembled figure and its per-panel raster output tree. */
 public final class FigureWriter {
 
-    public static final String ROOT_DIR = "Figure Panels";
-    public static final String PANELS_DIR = "panels";
+    public static final String ROOT_DIR = OutputTree.ROOT_DIR;
+    public static final String PANELS_DIR = OutputTree.PANELS_DIR;
 
     public FigureOutput writeFigure(File outputRoot, String figureName,
             List<PanelRecord> records, PanelConfig config) throws IOException {
@@ -34,13 +35,9 @@ public final class FigureWriter {
             throw new IllegalArgumentException("At least one panel record is required.");
         }
 
-        File figureRoot = new File(outputRoot, ROOT_DIR);
-        IoUtils.mustMkdirs(figureRoot);
-        File figureDir = uniqueDirectory(figureRoot,
-                PanelWriter.safeFileBase(figureName, "Figure"));
-        IoUtils.mustMkdirs(figureDir);
-        File panelsDir = new File(figureDir, PANELS_DIR);
-        IoUtils.mustMkdirs(panelsDir);
+        OutputTree.Tree tree = OutputTree.prepare(outputRoot, figureName);
+        File figureDir = tree.figureDirectory();
+        File panelsDir = tree.panelsDirectory();
 
         writePanelCopies(panelsDir, safeRecords, config);
 
@@ -72,16 +69,6 @@ public final class FigureWriter {
             PanelWriter.writePngAtomically(image, new File(panelsDir, name),
                     config.outputDpi());
         }
-    }
-
-    private static File uniqueDirectory(File parent, String base) {
-        File first = new File(parent, base);
-        if (!first.exists()) return first;
-        for (int i = 2; i < 10000; i++) {
-            File candidate = new File(parent, base + "_" + i);
-            if (!candidate.exists()) return candidate;
-        }
-        throw new IllegalStateException("Could not choose a unique figure folder.");
     }
 
     private static String uniqueFileName(LinkedHashSet<String> usedNames,

@@ -118,6 +118,7 @@ public class PanelWriterTest {
 
         assertTrue(output.figureDirectory().isDirectory());
         assertTrue(output.panelsDirectory().isDirectory());
+        assertTrue(new File(output.figureDirectory(), "README.txt").isFile());
         assertTrue(output.figurePng().isFile());
         assertTrue(output.figureTif().isFile());
         assertTrue(output.uncalibratedImages().isEmpty());
