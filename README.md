@@ -58,6 +58,10 @@ Figure Panel Builder requires [Fiji](https://fiji.sc/) with Bio-Formats. Downloa
 Fiji's `plugins` folder, restart Fiji, then run
 `Plugins > Figure Panel Builder`. The guided wizard supports folder loading, metadata labelling,
 channel setup, representative selection, layout, annotation, and export.
+
+For automatic installation and updates, open `Help > Update...`, choose `Manage update sites`,
+add an unlisted site named `FigurePanelBuilder` with URL
+`https://sites.imagej.net/FigurePanelBuilder/`, enable it, apply the changes, and restart Fiji.
 Each Choose Images row has four compact icon controls for 90-degree left/right rotation and
 horizontal/vertical flipping. The same controls appear over an image while it is hovered in the
 Layout canvas. Orientation is stored per logical image and is applied consistently to previews,
