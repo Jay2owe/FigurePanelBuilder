@@ -8,7 +8,7 @@
  */
 package fpb.ui.chooser;
 
-import fpb.stats.SelectionRecord;
+import fpb.stats.GroupQuantification;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -23,7 +23,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Paints the per-subject, per-channel deviation spine for the chooser rows. */
+/** Paints one section's per-channel z-score trace in a chooser row. */
 public final class SpinePainter {
 
     public static final int MAX_CHANNELS = 8;
@@ -32,7 +32,7 @@ public final class SpinePainter {
     private static final Color BORDER = new Color(200, 205, 211);
     private static final Color RULE = new Color(128, 134, 140);
     private static final Color CONTEXT = new Color(72, 76, 82, 55);
-    private static final Color SUBJECT = new Color(38, 42, 47);
+    private static final Color SECTION = new Color(38, 42, 47);
     private static final Color SUGGESTED = new Color(86, 180, 233);
     private static final Color CHOSEN = new Color(213, 94, 0);
     private static final Color TEXT = new Color(55, 60, 66);
@@ -41,41 +41,47 @@ public final class SpinePainter {
 
     private SpinePainter() {}
 
-    public static BufferedImage paintToImage(GroupData data, String subject,
-            boolean chosen, int width, int height) {
+    public static BufferedImage paintToImage(GroupData data, int imageIndex,
+            boolean suggested, boolean chosen, int width, int height) {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("spine dimensions must be positive");
         }
-        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = image.createGraphics();
+        BufferedImage image = new BufferedImage(width, height,
+                BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = image.createGraphics();
         try {
-            paint(g, data, subject, chosen, width, height);
+            paint(graphics, data, imageIndex, suggested, chosen, width, height);
         } finally {
-            g.dispose();
+            graphics.dispose();
         }
         return image;
     }
 
-    public static void paint(Graphics2D g, GroupData data, String subject,
-            boolean chosen, int width, int height) {
-        if (g == null) throw new IllegalArgumentException("graphics must not be null");
+    public static void paint(Graphics2D graphics, GroupData data, int imageIndex,
+            boolean suggested, boolean chosen, int width, int height) {
+        if (graphics == null) {
+            throw new IllegalArgumentException("graphics must not be null");
+        }
         paintCountForTest++;
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+        graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
                 RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+        graphics.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
                 RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-        g.setColor(BACKGROUND);
-        g.fillRect(0, 0, width, height);
-        g.setColor(BORDER);
-        g.drawRect(0, 0, Math.max(0, width - 1), Math.max(0, height - 1));
+        graphics.setColor(BACKGROUND);
+        graphics.fillRect(0, 0, width, height);
+        graphics.setColor(BORDER);
+        graphics.drawRect(0, 0, Math.max(0, width - 1),
+                Math.max(0, height - 1));
 
+        SectionTrace primary = data == null ? null : data.trace(imageIndex);
+        String fallback = primary == null ? "section" : primary.section();
         if (data == null || data.channelCount() == 0) {
-            drawFallback(g, clean(subject), width, height);
+            drawFallback(graphics, fallback, width, height);
             return;
         }
-
         if (data.channelCount() > MAX_CHANNELS) {
-            drawFallback(g, "spine supports " + MAX_CHANNELS + " channels", width, height);
+            drawFallback(graphics, "spine supports " + MAX_CHANNELS + " channels",
+                    width, height);
             return;
         }
 
@@ -85,150 +91,148 @@ public final class SpinePainter {
         int bottom = 10;
         int plotWidth = Math.max(1, width - left - right);
         int plotHeight = Math.max(1, height - top - bottom);
-        int centreY = top + plotHeight / 2;
-        g.setColor(RULE);
-        g.drawLine(left, centreY, left + plotWidth, centreY);
+        int centreY = zY(0.0, data.axisLimit(), top, plotHeight);
+        graphics.setColor(RULE);
+        graphics.drawLine(left, centreY, left + plotWidth, centreY);
 
-        for (SubjectTrace trace : data.traces()) {
-            if (!trace.subject().equals(subject)) drawTrace(g, data, trace, left, top,
-                    plotWidth, plotHeight, false);
+        for (SectionTrace trace : data.traces()) {
+            if (trace.imageIndex() != imageIndex) {
+                drawTrace(graphics, data, trace, left, top, plotWidth,
+                        plotHeight, false);
+            }
         }
-        SubjectTrace trace = data.trace(subject);
-        if (trace != null) {
-            drawTrace(g, data, trace, left, top, plotWidth, plotHeight, true);
-            drawSectionTicks(g, data, trace, left, top, plotWidth, plotHeight);
+        if (primary != null) {
+            drawTrace(graphics, data, primary, left, top, plotWidth,
+                    plotHeight, true);
         } else {
-            drawFallback(g, clean(subject), width, height);
+            drawFallback(graphics, fallback, width, height);
         }
 
         int markerY = Math.max(9, Math.min(height - 9, centreY));
-        if (trace != null && trace.suggested()) {
-            g.setColor(SUGGESTED);
-            int cx = 8;
-            int[] xs = { cx, cx + 5, cx, cx - 5 };
+        if (primary != null && suggested) {
+            graphics.setColor(SUGGESTED);
+            int centreX = 8;
+            int[] xs = { centreX, centreX + 5, centreX, centreX - 5 };
             int[] ys = { markerY - 5, markerY, markerY + 5, markerY };
-            g.fillPolygon(xs, ys, 4);
+            graphics.fillPolygon(xs, ys, 4);
         }
-        if (chosen) {
-            g.setColor(CHOSEN);
-            g.setStroke(new BasicStroke(2f));
-            g.drawOval(3, markerY - 5, 10, 10);
+        if (primary != null && chosen) {
+            graphics.setColor(CHOSEN);
+            graphics.setStroke(new BasicStroke(2f));
+            graphics.drawOval(3, markerY - 5, 10, 10);
         }
     }
 
-    private static void drawTrace(Graphics2D g, GroupData data, SubjectTrace trace,
-            int left, int top, int plotWidth, int plotHeight, boolean primary) {
+    private static void drawTrace(Graphics2D graphics, GroupData data,
+            SectionTrace trace, int left, int top, int plotWidth,
+            int plotHeight, boolean primary) {
         int channels = data.channelCount();
         int[] xs = new int[channels];
         int[] ys = new int[channels];
         for (int channel = 0; channel < channels; channel++) {
             xs[channel] = channelX(channel, channels, left, plotWidth);
-            ys[channel] = deviationY(trace.deviation(channel), top, plotHeight);
+            ys[channel] = zY(trace.zScore(channel), data.axisLimit(), top,
+                    plotHeight);
         }
 
-        g.setStroke(new BasicStroke(primary ? 1.4f : 1f));
-        g.setColor(primary ? new Color(54, 59, 65, 150) : new Color(72, 76, 82, 35));
+        graphics.setStroke(new BasicStroke(primary ? 1.4f : 1f));
+        graphics.setColor(primary ? new Color(54, 59, 65, 150)
+                : new Color(72, 76, 82, 35));
         for (int channel = 1; channel < channels; channel++) {
-            if (!Double.isFinite(trace.deviation(channel - 1))
-                    || !Double.isFinite(trace.deviation(channel))) {
-                continue;
-            }
-            g.draw(new Line2D.Double(xs[channel - 1], ys[channel - 1],
+            if (!Double.isFinite(trace.zScore(channel - 1))
+                    || !Double.isFinite(trace.zScore(channel))) continue;
+            graphics.draw(new Line2D.Double(xs[channel - 1], ys[channel - 1],
                     xs[channel], ys[channel]));
         }
 
         for (int channel = 0; channel < channels; channel++) {
-            if (!Double.isFinite(trace.deviation(channel))) continue;
+            if (!Double.isFinite(trace.zScore(channel))) continue;
             int radius = primary ? 3 : 2;
-            g.setColor(primary ? SUBJECT : CONTEXT);
-            g.fillOval(xs[channel] - radius, ys[channel] - radius,
+            graphics.setColor(primary ? SECTION : CONTEXT);
+            graphics.fillOval(xs[channel] - radius, ys[channel] - radius,
                     radius * 2, radius * 2);
         }
     }
 
-    private static void drawSectionTicks(Graphics2D g, GroupData data,
-            SubjectTrace trace, int left, int top, int plotWidth, int plotHeight) {
-        g.setColor(new Color(38, 42, 47, 130));
-        for (int channel = 0; channel < data.channelCount(); channel++) {
-            int count = trace.sectionCount(channel);
-            if (count <= 1) continue;
-            int x = channelX(channel, data.channelCount(), left, plotWidth);
-            int y = deviationY(trace.deviation(channel), top, plotHeight);
-            int start = y - (count - 1) * 3;
-            for (int i = 0; i < count; i++) {
-                int yy = start + i * 6;
-                g.drawLine(x - 5, yy, x + 5, yy);
-            }
-        }
-    }
-
-    private static int channelX(int channel, int channelCount, int left, int plotWidth) {
+    static int channelX(int channel, int channelCount, int left, int plotWidth) {
         if (channelCount <= 1) return left + plotWidth / 2;
-        return left + (int) Math.round(channel * plotWidth / (double) (channelCount - 1));
+        return left + (int) Math.round(channel * plotWidth
+                / (double) (channelCount - 1));
     }
 
-    private static int deviationY(double deviation, int top, int plotHeight) {
-        double value = Double.isFinite(deviation) ? deviation : 0.0;
-        if (value < -0.5) value = -0.5;
-        if (value > 0.5) value = 0.5;
-        double normalized = 0.5 - value;
-        return top + (int) Math.round(normalized * plotHeight);
+    static int zY(double zScore, double axisLimit, int top, int plotHeight) {
+        double limit = Double.isFinite(axisLimit) && axisLimit > 0.0
+                ? axisLimit : 1.0;
+        double value = Double.isFinite(zScore) ? zScore : 0.0;
+        value = Math.max(-limit, Math.min(limit, value));
+        return top + (int) Math.round((limit - value) / (2.0 * limit)
+                * plotHeight);
     }
 
-    private static void drawFallback(Graphics2D g, String text, int width, int height) {
-        g.setColor(TEXT);
-        FontMetrics metrics = g.getFontMetrics();
-        String fitted = fit(text.isEmpty() ? "subject" : text, metrics,
+    private static void drawFallback(Graphics2D graphics, String text,
+            int width, int height) {
+        graphics.setColor(TEXT);
+        FontMetrics metrics = graphics.getFontMetrics();
+        String fitted = fit(clean(text).isEmpty() ? "section" : text, metrics,
                 Math.max(12, width - 10));
-        g.drawString(fitted, Math.max(4, (width - metrics.stringWidth(fitted)) / 2),
+        graphics.drawString(fitted,
+                Math.max(4, (width - metrics.stringWidth(fitted)) / 2),
                 Math.max(metrics.getAscent(),
                         (height + metrics.getAscent()) / 2 - 2));
     }
 
     static String fit(String text, FontMetrics metrics, int maxWidth) {
-        String clean = clean(text);
-        if (metrics == null || metrics.stringWidth(clean) <= maxWidth) return clean;
+        String value = clean(text);
+        if (metrics == null || metrics.stringWidth(value) <= maxWidth) return value;
         String suffix = "...";
-        int limit = clean.length();
+        int limit = value.length();
         while (limit > 1) {
-            String candidate = clean.substring(0, limit) + suffix;
+            String candidate = value.substring(0, limit) + suffix;
             if (metrics.stringWidth(candidate) <= maxWidth) return candidate;
             limit--;
         }
         return suffix;
     }
 
-    public static GroupData groupData(List<SelectionRecord> records, String group,
-            List<String> subjectOrder) {
-        if (records == null) return GroupData.empty();
-        LinkedHashMap<String, TraceBuilder> builders =
-                new LinkedHashMap<String, TraceBuilder>();
-        int channelCount = 0;
-        for (SelectionRecord record : records) {
-            if (record == null || !clean(group).equals(clean(record.group()))) continue;
-            channelCount = Math.max(channelCount, record.channelIndex() + 1);
-            TraceBuilder builder = builders.get(record.subject());
-            if (builder == null) {
-                builder = new TraceBuilder(record.subject());
-                builders.put(record.subject(), builder);
+    public static GroupData groupData(GroupQuantification quantification,
+            String group) {
+        if (quantification == null || quantification.channelCount() == 0) {
+            return GroupData.empty();
+        }
+        LinkedHashMap<Integer, TraceBuilder> builders =
+                new LinkedHashMap<Integer, TraceBuilder>();
+        for (int channel = 0; channel < quantification.channelCount(); channel++) {
+            GroupQuantification.GroupData channelGroup = findGroup(
+                    quantification.channel(channel), group);
+            if (channelGroup == null) continue;
+            for (GroupQuantification.SectionValue section
+                    : channelGroup.sections()) {
+                Integer key = Integer.valueOf(section.imageIndex());
+                TraceBuilder builder = builders.get(key);
+                if (builder == null) {
+                    builder = new TraceBuilder(section.imageIndex(),
+                            section.subject(), section.section(),
+                            section.sourceLabel());
+                    builders.put(key, builder);
+                }
+                builder.put(channel, section.zScore());
             }
-            builder.put(record);
         }
-        if (channelCount == 0) return GroupData.empty();
+        List<SectionTrace> traces = new ArrayList<SectionTrace>();
+        for (TraceBuilder builder : builders.values()) {
+            traces.add(builder.trace(quantification.channelCount()));
+        }
+        return new GroupData(quantification.channelCount(),
+                quantification.sharedAxisLimit(), traces);
+    }
 
-        List<SubjectTrace> traces = new ArrayList<SubjectTrace>();
-        List<String> order = subjectOrder == null
-                ? new ArrayList<String>(builders.keySet())
-                : subjectOrder;
-        for (String subject : order) {
-            TraceBuilder builder = builders.get(subject);
-            if (builder != null) traces.add(builder.trace(channelCount));
+    private static GroupQuantification.GroupData findGroup(
+            GroupQuantification.ChannelData channel, String group) {
+        String wanted = clean(group);
+        for (GroupQuantification.GroupData candidate : channel.groups()) {
+            if (wanted.equals(clean(candidate.group()))) return candidate;
         }
-        for (Map.Entry<String, TraceBuilder> entry : builders.entrySet()) {
-            if (subjectOrder == null || subjectOrder.contains(entry.getKey())) continue;
-            traces.add(entry.getValue().trace(channelCount));
-        }
-        return new GroupData(channelCount, traces);
+        return null;
     }
 
     static void resetPaintCountForTest() {
@@ -244,104 +248,99 @@ public final class SpinePainter {
     }
 
     private static final class TraceBuilder {
+        private final int imageIndex;
         private final String subject;
-        private final Map<Integer, SelectionRecord> byChannel =
-                new LinkedHashMap<Integer, SelectionRecord>();
+        private final String section;
+        private final String sourceLabel;
+        private final Map<Integer, Double> zScores =
+                new LinkedHashMap<Integer, Double>();
 
-        TraceBuilder(String subject) {
+        TraceBuilder(int imageIndex, String subject, String section,
+                String sourceLabel) {
+            this.imageIndex = imageIndex;
             this.subject = clean(subject);
+            this.section = clean(section);
+            this.sourceLabel = clean(sourceLabel);
         }
 
-        void put(SelectionRecord record) {
-            byChannel.put(Integer.valueOf(record.channelIndex()), record);
+        void put(int channel, double zScore) {
+            zScores.put(Integer.valueOf(channel), Double.valueOf(zScore));
         }
 
-        SubjectTrace trace(int channelCount) {
-            double[] deviations = new double[channelCount];
+        SectionTrace trace(int channelCount) {
             double[] values = new double[channelCount];
-            int[] sectionCounts = new int[channelCount];
-            boolean suggested = false;
-            for (int i = 0; i < channelCount; i++) {
-                SelectionRecord record = byChannel.get(Integer.valueOf(i));
-                deviations[i] = record == null ? Double.NaN : record.deviation();
-                values[i] = record == null ? Double.NaN : record.value();
-                sectionCounts[i] = record == null ? 0 : record.sectionCount();
-                suggested = suggested || (record != null && record.suggested());
+            java.util.Arrays.fill(values, Double.NaN);
+            for (Map.Entry<Integer, Double> entry : zScores.entrySet()) {
+                if (entry.getKey().intValue() >= 0
+                        && entry.getKey().intValue() < values.length) {
+                    values[entry.getKey().intValue()] = entry.getValue().doubleValue();
+                }
             }
-            return new SubjectTrace(subject, deviations, values, sectionCounts,
-                    suggested);
+            return new SectionTrace(imageIndex, subject, section, sourceLabel,
+                    values);
         }
     }
 
     public static final class GroupData {
         private final int channelCount;
-        private final List<SubjectTrace> traces;
-        private final Map<String, SubjectTrace> bySubject;
+        private final double axisLimit;
+        private final List<SectionTrace> traces;
+        private final Map<Integer, SectionTrace> byImageIndex;
 
-        private GroupData(int channelCount, List<SubjectTrace> traces) {
-            if (channelCount < 0) throw new IllegalArgumentException("channelCount is negative");
+        private GroupData(int channelCount, double axisLimit,
+                List<SectionTrace> traces) {
+            if (channelCount < 0) {
+                throw new IllegalArgumentException("channelCount is negative");
+            }
             this.channelCount = channelCount;
-            this.traces = Collections.unmodifiableList(new ArrayList<SubjectTrace>(traces));
-            LinkedHashMap<String, SubjectTrace> map =
-                    new LinkedHashMap<String, SubjectTrace>();
-            for (SubjectTrace trace : this.traces) map.put(trace.subject(), trace);
-            bySubject = Collections.unmodifiableMap(map);
+            this.axisLimit = Double.isFinite(axisLimit) && axisLimit > 0.0
+                    ? axisLimit : 1.0;
+            this.traces = Collections.unmodifiableList(
+                    new ArrayList<SectionTrace>(traces));
+            LinkedHashMap<Integer, SectionTrace> map =
+                    new LinkedHashMap<Integer, SectionTrace>();
+            for (SectionTrace trace : this.traces) {
+                map.put(Integer.valueOf(trace.imageIndex()), trace);
+            }
+            byImageIndex = Collections.unmodifiableMap(map);
         }
 
         public static GroupData empty() {
-            return new GroupData(0, Collections.<SubjectTrace>emptyList());
+            return new GroupData(0, 1.0,
+                    Collections.<SectionTrace>emptyList());
         }
 
-        public int channelCount() {
-            return channelCount;
-        }
-
-        public List<SubjectTrace> traces() {
-            return traces;
-        }
-
-        public SubjectTrace trace(String subject) {
-            return bySubject.get(clean(subject));
+        public int channelCount() { return channelCount; }
+        public double axisLimit() { return axisLimit; }
+        public List<SectionTrace> traces() { return traces; }
+        public SectionTrace trace(int imageIndex) {
+            return byImageIndex.get(Integer.valueOf(imageIndex));
         }
     }
 
-    public static final class SubjectTrace {
+    public static final class SectionTrace {
+        private final int imageIndex;
         private final String subject;
-        private final double[] deviations;
-        private final double[] values;
-        private final int[] sectionCounts;
-        private final boolean suggested;
+        private final String section;
+        private final String sourceLabel;
+        private final double[] zScores;
 
-        public SubjectTrace(String subject, double[] deviations, double[] values,
-                int[] sectionCounts, boolean suggested) {
+        private SectionTrace(int imageIndex, String subject, String section,
+                String sourceLabel, double[] zScores) {
+            this.imageIndex = imageIndex;
             this.subject = clean(subject);
-            this.deviations = deviations == null ? new double[0] : deviations.clone();
-            this.values = values == null ? new double[this.deviations.length] : values.clone();
-            this.sectionCounts = sectionCounts == null
-                    ? new int[this.deviations.length] : sectionCounts.clone();
-            this.suggested = suggested;
+            this.section = clean(section);
+            this.sourceLabel = clean(sourceLabel);
+            this.zScores = zScores == null ? new double[0] : zScores.clone();
         }
 
-        public String subject() {
-            return subject;
-        }
-
-        public double deviation(int channel) {
-            return channel >= 0 && channel < deviations.length
-                    ? deviations[channel] : Double.NaN;
-        }
-
-        public double value(int channel) {
-            return channel >= 0 && channel < values.length ? values[channel] : Double.NaN;
-        }
-
-        public int sectionCount(int channel) {
-            return channel >= 0 && channel < sectionCounts.length
-                    ? sectionCounts[channel] : 0;
-        }
-
-        public boolean suggested() {
-            return suggested;
+        public int imageIndex() { return imageIndex; }
+        public String subject() { return subject; }
+        public String section() { return section; }
+        public String sourceLabel() { return sourceLabel; }
+        public double zScore(int channel) {
+            return channel >= 0 && channel < zScores.length
+                    ? zScores[channel] : Double.NaN;
         }
     }
 }

@@ -174,16 +174,15 @@ public final class RenderThread implements Runnable, AutoCloseable {
         public RenderedFrame render(RenderRequest request) {
             if (!request.hasGrid()) return new RenderedFrame(request,
                     Collections.<RenderedRow>emptyList());
-            PanelGrid grid = request.grid();
-            RowImage.Layout layout = grid.layoutForCurrentScale();
+            RowImage.Layout layout = request.layout();
             List<Integer> indices = request.rowIndices();
             List<RenderedRow> rows = new ArrayList<RenderedRow>(indices.size());
             for (int i = 0; i < indices.size(); i++) {
                 int rowIndex = indices.get(i).intValue();
-                RowImage.SubjectRow row = grid.rowAt(rowIndex);
+                RowImage.SubjectRow row = request.rowAt(rowIndex);
                 BufferedImage image = RowImage.renderSubject(row, request.planes(),
                         request.histograms(), request.channels(), layout,
-                        grid.selectedRowIndex() == rowIndex);
+                        request.selectedRowIndex() == rowIndex);
                 rows.add(new RenderedRow(rowIndex, image));
             }
             return new RenderedFrame(request, rows);

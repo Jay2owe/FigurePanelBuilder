@@ -9,8 +9,10 @@
 package fpb;
 
 import fpb.figure.PanelConfig;
+import fpb.figure.ImageOrientation;
 import fpb.io.HistogramCache;
 import fpb.io.ImageLoader;
+import fpb.io.ImageSource;
 import fpb.io.PlaneCache;
 import fpb.io.ProgressCallback;
 import fpb.meta.MetadataRow;
@@ -18,11 +20,9 @@ import fpb.meta.MetadataTable;
 import fpb.render.ChannelColour;
 import fpb.render.DisplayRange;
 import fpb.render.FPBRenderer;
-import fpb.stats.GroupStats;
 import fpb.stats.SelectionRecord;
 import fpb.stats.Statistic;
 import fpb.stats.SubjectAggregator;
-import fpb.stats.Suggestion;
 import fpb.ui.chooser.ChannelRail;
 import fpb.ui.chooser.RowImage;
 import fpb.ui.chooser.Step3Chooser;
@@ -61,32 +61,39 @@ public final class QuickGrid {
 
     public static Result run(File folder, boolean recursive,
             ProgressCallback progress) throws IOException {
+        return run(folder, recursive, ImageLoader.ZMode.MAX, progress);
+    }
+
+    public static Result run(File folder, boolean recursive,
+            ImageLoader.ZMode zMode, ProgressCallback progress) throws IOException {
         ImageLoader.LoadResult loaded = new ImageLoader(150, 4)
-                .loadFolder(folder, recursive, progress);
-        List<File> files = sourceFiles(loaded.planeCache());
-        MetadataTable table = quickGridTable(folder, files);
+                .loadFolder(folder, recursive, zMode, progress);
+        List<ImageSource> sources = sources(loaded.planeCache());
+        List<File> files = sourceFiles(sources);
+        MetadataTable table = quickGridTable(folder, sources);
         List<ChannelRail.ChannelSpec> specs = channelSpecs(loaded.channelCount());
         LinkedHashMap<Integer, DisplayRange> ranges =
                 cohortRanges(loaded.histogramCache());
         List<FPBRenderer.ChannelRequest> requests = channelRequests(specs, ranges);
 
-        Statistic.ImageValues imageValues =
-                Statistic.brightestOnePercentMeans(loaded.histogramCache());
+        Statistic.ImageValues imageValues = neutralImageValues(sources);
         SubjectAggregator.SubjectStats subjectStats =
                 SubjectAggregator.aggregate(table, imageValues);
-        GroupStats groupStats = GroupStats.from(subjectStats);
-        Map<String, Suggestion.Result> suggestions =
-                Suggestion.suggest(groupStats);
-        List<SelectionRecord> selectionRecords =
-                SelectionRecord.from(subjectStats, groupStats, suggestions);
 
         Step3Chooser.Data data = new Step3Chooser.Data(table, loaded.planeCache(),
-                loaded.histogramCache(), specs, subjectStats, suggestions,
-                selectionRecords);
+                loaded.histogramCache(), specs, subjectStats,
+                Collections.<String, fpb.stats.Suggestion.Result>emptyMap(),
+                Collections.<SelectionRecord>emptyList());
         LinkedHashMap<String, RowImage.SubjectRow> selected =
                 selectedRows(table);
         PanelConfig config = defaultConfig(specs, selected.keySet());
         return new Result(files, ranges, requests, table, data, selected, config);
+    }
+
+    private static Statistic.ImageValues neutralImageValues(List<ImageSource> sources) {
+        Map<ImageSource, Double> values = new LinkedHashMap<ImageSource, Double>();
+        for (ImageSource source : sources) values.put(source, Double.valueOf(0.0));
+        return Statistic.ImageValues.singleChannelSources(values, "none", "none");
     }
 
     public static LinkedHashMap<Integer, DisplayRange> cohortRanges(
@@ -102,19 +109,33 @@ public final class QuickGrid {
         return ranges;
     }
 
-    private static List<File> sourceFiles(PlaneCache planes) {
-        List<File> files = new ArrayList<File>();
+    private static List<ImageSource> sources(PlaneCache planes) {
+        List<ImageSource> sources = new ArrayList<ImageSource>();
         for (PlaneCache.ImagePlanes image : planes.images()) {
-            files.add(image.sourceFile());
+            sources.add(image.source());
         }
+        return Collections.unmodifiableList(sources);
+    }
+
+    private static List<File> sourceFiles(List<ImageSource> sources) {
+        List<File> files = new ArrayList<File>();
+        for (ImageSource source : sources) files.add(source.file());
         return Collections.unmodifiableList(files);
     }
 
-    private static MetadataTable quickGridTable(File folder, List<File> files) {
+    private static MetadataTable quickGridTable(File folder, List<ImageSource> sources) {
         List<MetadataRow> rows = new ArrayList<MetadataRow>();
-        for (int i = 0; i < files.size(); i++) {
-            String label = indexedLabel(i, files.get(i));
-            rows.add(new MetadataRow(files.get(i), label, label, ""));
+        for (int i = 0; i < sources.size(); i++) {
+            ImageSource source = sources.get(i);
+            if (source.isSeries()) {
+                String label = String.format(java.util.Locale.ROOT, "%03d %s — %s",
+                        Integer.valueOf(i + 1), basename(source.file()),
+                        source.seriesLabel());
+                rows.add(new MetadataRow(source, label, source.seriesLabel(), ""));
+            } else {
+                String label = indexedLabel(i, source.file());
+                rows.add(new MetadataRow(source, label, label, ""));
+            }
         }
         return new MetadataTable(folder, rows);
     }
@@ -150,7 +171,8 @@ public final class QuickGrid {
         for (int i = 0; i < metadata.size(); i++) {
             MetadataRow row = metadata.get(i);
             rows.put(row.group, new RowImage.SubjectRow(row.group, row.subject,
-                    i, false));
+                    row.section, i, false, null, table.csvFileName(row),
+                    ImageOrientation.IDENTITY));
         }
         return rows;
     }

@@ -26,10 +26,14 @@ public final class RenderRequest {
     private final List<FPBRenderer.ChannelRequest> channels;
     private final boolean adjusting;
     private final List<Integer> rowIndices;
+    private final RowImage.Layout layout;
+    private final List<RowImage.SubjectRow> rows;
+    private final int selectedRowIndex;
 
     private RenderRequest(String key, PanelGrid grid, PlaneCache planes,
             HistogramCache histograms, List<FPBRenderer.ChannelRequest> channels,
-            boolean adjusting, List<Integer> rowIndices) {
+            boolean adjusting, List<Integer> rowIndices, RowImage.Layout layout,
+            List<RowImage.SubjectRow> rows, int selectedRowIndex) {
         this.key = key == null ? "" : key;
         this.grid = grid;
         this.planes = planes;
@@ -40,6 +44,10 @@ public final class RenderRequest {
         this.adjusting = adjusting;
         this.rowIndices = rowIndices == null ? Collections.<Integer>emptyList()
                 : Collections.unmodifiableList(new ArrayList<Integer>(rowIndices));
+        this.layout = layout;
+        this.rows = rows == null ? Collections.<RowImage.SubjectRow>emptyList()
+                : Collections.unmodifiableList(new ArrayList<RowImage.SubjectRow>(rows));
+        this.selectedRowIndex = selectedRowIndex;
     }
 
     public static RenderRequest forGrid(PanelGrid grid, PlaneCache planes,
@@ -53,12 +61,14 @@ public final class RenderRequest {
         }
         List<Integer> indices = grid.rowIndices(adjusting);
         return new RenderRequest(grid.group(), grid, planes, histograms, channels,
-                adjusting, indices);
+                adjusting, indices, grid.layoutForCurrentScale(), grid.rows(),
+                grid.selectedRowIndex());
     }
 
     static RenderRequest marker(String key) {
         return new RenderRequest(key, null, null, null, null, false,
-                Collections.<Integer>emptyList());
+                Collections.<Integer>emptyList(), null,
+                Collections.<RowImage.SubjectRow>emptyList(), -1);
     }
 
     public String key() {
@@ -91,5 +101,17 @@ public final class RenderRequest {
 
     public List<Integer> rowIndices() {
         return rowIndices;
+    }
+
+    public RowImage.Layout layout() {
+        return layout;
+    }
+
+    public RowImage.SubjectRow rowAt(int rowIndex) {
+        return rows.get(rowIndex);
+    }
+
+    public int selectedRowIndex() {
+        return selectedRowIndex;
     }
 }

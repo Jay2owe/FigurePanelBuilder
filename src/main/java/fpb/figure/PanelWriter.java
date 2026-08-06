@@ -8,11 +8,15 @@
  */
 package fpb.figure;
 
+import fpb.io.Binner;
 import fpb.util.CsvSupport;
 import fpb.util.IoUtils;
+import fpb.util.CancellationCheck;
 import ij.ImagePlus;
+import ij.ImageStack;
 import ij.io.FileSaver;
 import ij.measure.Calibration;
+import ij.process.ColorProcessor;
 
 import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
@@ -35,6 +39,7 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -109,6 +114,7 @@ public final class PanelWriter {
                             record.calibrationSource().name(),
                             record.imageId())));
                 }
+                CsvSupport.requireNoError(pw, temp);
             } finally {
                 pw.close();
             }
@@ -130,17 +136,8 @@ public final class PanelWriter {
             BufferedImage image = ImageIO.read(source);
             if (image == null) continue;
 
-            BufferedImage annotated = toArgb(image);
-            Graphics2D g = annotated.createGraphics();
-            try {
-                applyQualityHints(g);
-                Rectangle imageRect = new Rectangle(0, 0,
-                        annotated.getWidth(), annotated.getHeight());
-                drawAnnotations(g, record, config, imageRect, 1.0,
-                        1.0, 1.0, safeReport);
-            } finally {
-                g.dispose();
-            }
+            BufferedImage annotated = renderAnnotatedPanel(image, record, config,
+                    safeReport);
 
             File groupDir = new File(annotatedRoot, safeFileBase(record.group(), "Group"));
             IoUtils.mustMkdirs(groupDir);
@@ -148,6 +145,27 @@ public final class PanelWriter {
             writePngAtomically(annotated, out, config.outputDpi());
             record.setAnnotatedImageFile(out);
         }
+    }
+
+    /** Returns a full-size copy with the configured per-panel annotations applied. */
+    public static BufferedImage renderAnnotatedPanel(BufferedImage image,
+            PanelRecord record, PanelConfig config, WriteReport report) {
+        if (image == null) throw new IllegalArgumentException("image is required");
+        if (record == null) throw new IllegalArgumentException("record is required");
+        if (config == null) throw new IllegalArgumentException("config is required");
+        WriteReport safeReport = report == null ? new WriteReport() : report;
+        BufferedImage annotated = toArgb(image);
+        Graphics2D g = annotated.createGraphics();
+        try {
+            applyQualityHints(g);
+            Rectangle imageRect = new Rectangle(0, 0,
+                    annotated.getWidth(), annotated.getHeight());
+            drawAnnotations(g, record, config, imageRect, 1.0,
+                    1.0, 1.0, safeReport);
+        } finally {
+            g.dispose();
+        }
+        return annotated;
     }
 
     public static WriteReport writeOverviewPanel(File outputFile,
@@ -162,11 +180,25 @@ public final class PanelWriter {
 
     public static BufferedImage renderOverviewPanel(List<PanelRecord> records,
             PanelConfig config) throws IOException {
-        return renderOverviewPanel(records, config, new WriteReport());
+        return renderOverviewPanel(records, config, new WriteReport(), 1);
     }
 
     public static BufferedImage renderOverviewPanel(List<PanelRecord> records,
             PanelConfig config, WriteReport report) throws IOException {
+        return renderOverviewPanel(records, config, report, 1);
+    }
+
+    /** Renders directly into an exactly scaled canvas while sampling source panels once. */
+    public static BufferedImage renderOverviewPanel(List<PanelRecord> records,
+            PanelConfig config, WriteReport report, int outputScale) throws IOException {
+        return renderOverviewPanel(records, config, report, outputScale,
+                CancellationCheck.NEVER_CANCELLED);
+    }
+
+    public static BufferedImage renderOverviewPanel(List<PanelRecord> records,
+            PanelConfig config, WriteReport report, int outputScale,
+            CancellationCheck cancelCheck) throws IOException {
+        checkCancelled(cancelCheck);
         List<PanelRecord> usable = safeRecords(records);
         if (usable.isEmpty()) {
             throw new IllegalArgumentException("At least one panel record is required.");
@@ -178,7 +210,8 @@ public final class PanelWriter {
             throw new IllegalArgumentException("At least one output column is required.");
         }
         if (config.hasGroupLayoutRows()) {
-            return renderGroupLayoutPanel(usable, columns, config, report);
+            return renderGroupLayoutPanel(usable, columns, config, report,
+                    safeOutputScale(outputScale), cancelCheck);
         }
 
         List<Row> rows = orderedRows(usable, config.groupRowsBy());
@@ -194,7 +227,8 @@ public final class PanelWriter {
 
         Font headerFont = new Font(Font.SANS_SERIF, Font.BOLD,
                 config.channelFontSizePx());
-        Font rowFont = new Font(Font.SANS_SERIF, Font.PLAIN, 14);
+        Font rowFont = new Font(Font.SANS_SERIF, Font.PLAIN,
+                config.rowFontSizePx());
         Font groupFont = new Font(Font.SANS_SERIF, Font.BOLD,
                 config.groupFontSizePx());
 
@@ -203,11 +237,14 @@ public final class PanelWriter {
         TileLayout layout = createTileLayout(columns, rows, cell, groupCount,
                 headerFont, rowFont, groupFont, config);
 
-        BufferedImage panel = new BufferedImage(layout.width, layout.height,
+        int scale = safeOutputScale(outputScale);
+        BufferedImage panel = new BufferedImage(scaledCanvas(layout.width, scale),
+                scaledCanvas(layout.height, scale),
                 BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = panel.createGraphics();
         try {
             applyQualityHints(g);
+            g.scale(scale, scale);
             g.setColor(PANEL_BG);
             g.fillRect(0, 0, layout.width, layout.height);
 
@@ -215,29 +252,37 @@ public final class PanelWriter {
             int y = layout.margin;
             if (config.channelHeaderVisible()) {
                 drawColumnHeaders(g, columns, x0, y, cell, layout.colGap,
-                        layout.headerHeight, headerFont);
+                        layout.headerHeight, headerFont,
+                        config.channelHeaderOrientation(),
+                        config.channelHeaderGapPx(), config, report);
                 y += layout.headerHeight;
             }
 
             String lastGroup = null;
             for (int r = 0; r < rows.size(); r++) {
+                checkCancelled(cancelCheck);
                 Row row = rows.get(r);
                 if (config.groupHeaderVisible()
                         && !row.groupLabel.equals(lastGroup)) {
                     drawGroupLabel(g, row.groupLabel, layout.margin, y,
                             layout.width - layout.margin * 2,
-                            layout.groupHeaderHeight, groupFont);
+                            layout.groupHeaderHeight, groupFont, config, report);
                     y += layout.groupHeaderHeight;
                     lastGroup = row.groupLabel;
                 }
 
-                drawRowLabel(g, row.label, layout.margin, y,
-                        layout.rowLabelWidth, cell, rowFont);
+                if (config.rowLabelVisible()) {
+                    drawRowLabel(g, row.key, row.label, layout.margin, y,
+                            layout.rowLabelWidth, cell, rowFont,
+                            config.rowLabelOrientation(), config, report);
+                }
                 for (int c = 0; c < columns.size(); c++) {
+                    checkCancelled(cancelCheck);
                     int x = x0 + c * (cell + layout.colGap);
                     PanelRecord record = byRowAndColumn.get(
                             row.key + "\n" + columns.get(c));
                     drawCell(g, record, config, x, y, cell, report);
+                    checkCancelled(cancelCheck);
                 }
                 y += cell;
                 if (r < rows.size() - 1) y += layout.rowGap;
@@ -325,6 +370,29 @@ public final class PanelWriter {
         }
     }
 
+    /** Copies a canonical display-rendered PNG without decoding its pixels. */
+    public static void copyPngAtomically(File sourceFile, File outputFile)
+            throws IOException {
+        if (sourceFile == null || !sourceFile.isFile()) {
+            throw new IOException("Display-rendered PNG is missing");
+        }
+        if (outputFile == null) {
+            throw new IllegalArgumentException("outputFile is required");
+        }
+        File parent = outputFile.getParentFile();
+        if (parent != null) IoUtils.mustMkdirs(parent);
+        File temp = tempFileFor(outputFile);
+        boolean moved = false;
+        try {
+            Files.copy(sourceFile.toPath(), temp.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING);
+            moveAtomically(temp.toPath(), outputFile.toPath());
+            moved = true;
+        } finally {
+            if (!moved) Files.deleteIfExists(temp.toPath());
+        }
+    }
+
     public static void writeTiffAtomically(BufferedImage image, File outputFile,
             int dpi) throws IOException {
         File parent = outputFile.getParentFile();
@@ -333,6 +401,29 @@ public final class PanelWriter {
         boolean moved = false;
         try {
             writeTiff(image, temp, dpi);
+            moveAtomically(temp.toPath(), outputFile.toPath());
+            moved = true;
+        } finally {
+            if (!moved) Files.deleteIfExists(temp.toPath());
+        }
+    }
+
+    /** Writes display-rendered channel images as one calibrated RGB TIFF stack. */
+    public static void writeTiffStackAtomically(List<BufferedImage> images,
+            List<String> labels, File outputFile, double pixelWidthUm,
+            double pixelHeightUm) throws IOException {
+        if (images == null || images.isEmpty()) {
+            throw new IllegalArgumentException("images must not be empty");
+        }
+        if (outputFile == null) {
+            throw new IllegalArgumentException("outputFile is required");
+        }
+        File parent = outputFile.getParentFile();
+        if (parent != null) IoUtils.mustMkdirs(parent);
+        File temp = tempFileFor(outputFile);
+        boolean moved = false;
+        try {
+            writeTiffStack(images, labels, temp, pixelWidthUm, pixelHeightUm);
             moveAtomically(temp.toPath(), outputFile.toPath());
             moved = true;
         } finally {
@@ -364,7 +455,7 @@ public final class PanelWriter {
             return;
         }
 
-        File imageFile = record.preferredImageFile(config.annotateIndividualPanels());
+        File imageFile = record.imageFile();
         BufferedImage image = null;
         try {
             image = imageFile == null ? null : ImageIO.read(imageFile);
@@ -384,10 +475,13 @@ public final class PanelWriter {
         int drawH = Math.max(1, (int) Math.round(image.getHeight() * scale));
         int drawX = x + (cell - drawW) / 2;
         int drawY = y + (cell - drawH) / 2;
-        g.drawImage(image, drawX, drawY, drawW, drawH, null);
+        BufferedImage fitted = Binner.maxBin(image, drawW, drawH);
+        g.drawImage(fitted, drawX, drawY, null);
+        if (report != null) {
+            report.addImageBox(record, new Rectangle(drawX, drawY, drawW, drawH));
+        }
 
-        if (config.annotateOverviewPanel()
-                && !config.annotateIndividualPanels()) {
+        if (config.annotateOverviewPanel()) {
             double recordScale = drawW / (double) Math.max(1, record.widthPx());
             drawAnnotations(g, record, config,
                     new Rectangle(drawX, drawY, drawW, drawH), recordScale,
@@ -409,11 +503,16 @@ public final class PanelWriter {
             int margin = config.marginPx();
             int colGap = config.innerColGapPx();
             int rowGap = config.rowGapPx();
-            int rowLabelGap = 6;
-            int rowLabelWidth = tightRowLabelWidth(rows, rowFm, cell);
+            int rowLabelGap = config.rowLabelVisible()
+                    ? config.rowLabelGapPx() : 0;
+            int rowLabelWidth = config.rowLabelVisible()
+                    ? rowLabelWidth(rows, rowFm, cell,
+                            config.rowLabelOrientation(), config) : 0;
             if (rowLabelWidth <= 0) rowLabelGap = 0;
             int headerHeight = config.channelHeaderVisible()
-                    ? headerFm.getHeight() + 4 : 0;
+                    ? headerLabelHeight(displayColumnLabels(columns, config),
+                            headerFm, cell, config.channelHeaderOrientation())
+                            + config.channelHeaderGapPx() : 0;
             int groupHeaderHeight = config.groupHeaderVisible()
                     ? groupFm.getHeight() + 4 : 0;
             int width = margin * 2 + rowLabelWidth + rowLabelGap
@@ -431,16 +530,20 @@ public final class PanelWriter {
     }
 
     private static BufferedImage renderGroupLayoutPanel(List<PanelRecord> records,
-            List<String> columns, PanelConfig config, WriteReport report) {
+            List<String> columns, PanelConfig config, WriteReport report,
+            int outputScale, CancellationCheck cancelCheck) throws IOException {
+        checkCancelled(cancelCheck);
         List<List<String>> layoutRows = normalizedGroupLayout(records,
                 config.groupLayoutRows());
         if (layoutRows.isEmpty()) {
-            return renderGroupFallback(records, config, report);
+            return renderGroupFallback(records, config, report, outputScale,
+                    cancelCheck);
         }
 
         Font headerFont = new Font(Font.SANS_SERIF, Font.BOLD,
                 config.channelFontSizePx());
-        Font rowFont = new Font(Font.SANS_SERIF, Font.PLAIN, 14);
+        Font rowFont = new Font(Font.SANS_SERIF, Font.PLAIN,
+                config.rowFontSizePx());
         Font groupFont = new Font(Font.SANS_SERIF, Font.BOLD,
                 config.groupFontSizePx());
         BufferedImage scratch = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
@@ -454,6 +557,7 @@ public final class PanelWriter {
             FontMetrics rowMetrics = sg.getFontMetrics(rowFont);
             FontMetrics groupMetrics = sg.getFontMetrics(groupFont);
             for (List<String> layoutRow : layoutRows) {
+                checkCancelled(cancelCheck);
                 List<GroupBlock> blocks = new ArrayList<GroupBlock>();
                 int rowWidth = 0;
                 int rowHeight = 0;
@@ -477,26 +581,31 @@ public final class PanelWriter {
             sg.dispose();
         }
         if (blockRows.isEmpty()) {
-            return renderGroupFallback(records, config, report);
+            return renderGroupFallback(records, config, report, outputScale,
+                    cancelCheck);
         }
 
-        BufferedImage image = new BufferedImage(Math.max(1, width),
-                Math.max(1, height), BufferedImage.TYPE_INT_ARGB);
+        BufferedImage image = new BufferedImage(
+                scaledCanvas(Math.max(1, width), outputScale),
+                scaledCanvas(Math.max(1, height), outputScale),
+                BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = image.createGraphics();
         try {
             applyQualityHints(g);
+            g.scale(outputScale, outputScale);
             g.setColor(PANEL_BG);
             g.fillRect(0, 0, image.getWidth(), image.getHeight());
 
             int y = config.marginPx();
             for (int r = 0; r < blockRows.size(); r++) {
+                checkCancelled(cancelCheck);
                 List<GroupBlock> blocks = blockRows.get(r);
                 int x = config.marginPx();
                 int rowHeight = 0;
                 for (GroupBlock block : blocks) rowHeight = Math.max(rowHeight, block.height);
                 for (GroupBlock block : blocks) {
                     drawGroupBlock(g, block, x, y, columns, config, headerFont,
-                            rowFont, groupFont, report);
+                            rowFont, groupFont, report, cancelCheck);
                     x += block.width + config.groupGapPx();
                 }
                 y += rowHeight + config.rowGapPx();
@@ -508,15 +617,25 @@ public final class PanelWriter {
     }
 
     private static BufferedImage renderGroupFallback(List<PanelRecord> records,
-            PanelConfig config, WriteReport report) {
+            PanelConfig config, WriteReport report, int outputScale,
+            CancellationCheck cancelCheck) throws IOException {
         PanelConfig fallback = config.toBuilder()
                 .groupLayoutRows(Collections.<List<String>>emptyList())
                 .build();
-        try {
-            return renderOverviewPanel(records, fallback, report);
-        } catch (IOException e) {
-            throw new IllegalStateException("Could not render group layout fallback", e);
+        return renderOverviewPanel(records, fallback, report, outputScale,
+                cancelCheck);
+    }
+
+    private static int safeOutputScale(int outputScale) {
+        return Math.max(1, Math.min(4, outputScale));
+    }
+
+    private static int scaledCanvas(int dimension, int scale) {
+        long result = (long) Math.max(1, dimension) * safeOutputScale(scale);
+        if (result > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("Scaled figure dimensions are too large.");
         }
+        return (int) result;
     }
 
     private static GroupBlock createGroupBlock(String group, List<PanelRecord> records,
@@ -525,11 +644,16 @@ public final class PanelWriter {
         List<PanelRecord> groupRecords = recordsForGroup(records, group);
         List<Row> rows = rowsForGroup(groupRecords, group);
         int cell = config.cellSizePx();
-        int rowLabelGap = rows.isEmpty() ? 0 : 6;
-        int rowLabelWidth = tightRowLabelWidth(rows, rowMetrics, cell);
+        int rowLabelGap = rows.isEmpty() || !config.rowLabelVisible()
+                ? 0 : config.rowLabelGapPx();
+        int rowLabelWidth = config.rowLabelVisible()
+                ? rowLabelWidth(rows, rowMetrics, cell,
+                        config.rowLabelOrientation(), config) : 0;
         if (rowLabelWidth <= 0) rowLabelGap = 0;
         int headerHeight = config.channelHeaderVisible()
-                ? headerMetrics.getHeight() + 4 : 0;
+                ? headerLabelHeight(displayColumnLabels(columns, config),
+                        headerMetrics, cell, config.channelHeaderOrientation())
+                        + config.channelHeaderGapPx() : 0;
         int groupHeaderHeight = config.groupHeaderVisible()
                 ? groupMetrics.getHeight() + 4 : 0;
         int colGap = config.innerColGapPx();
@@ -545,17 +669,21 @@ public final class PanelWriter {
 
     private static void drawGroupBlock(Graphics2D g, GroupBlock block, int x, int y,
             List<String> columns, PanelConfig config, Font headerFont,
-            Font rowFont, Font groupFont, WriteReport report) {
+            Font rowFont, Font groupFont, WriteReport report,
+            CancellationCheck cancelCheck) throws IOException {
+        checkCancelled(cancelCheck);
         int cursorY = y;
         if (config.groupHeaderVisible()) {
             drawGroupLabel(g, block.group, x, cursorY, block.width,
-                    block.groupHeaderHeight, groupFont);
+                    block.groupHeaderHeight, groupFont, config, report);
             cursorY += block.groupHeaderHeight;
         }
         int x0 = x + block.rowLabelWidth + block.rowLabelGap;
         if (config.channelHeaderVisible()) {
             drawColumnHeaders(g, columns, x0, cursorY, config.cellSizePx(),
-                    config.innerColGapPx(), block.headerHeight, headerFont);
+                    config.innerColGapPx(), block.headerHeight, headerFont,
+                    config.channelHeaderOrientation(),
+                    config.channelHeaderGapPx(), config, report);
             cursorY += block.headerHeight;
         }
 
@@ -565,14 +693,21 @@ public final class PanelWriter {
             byKey.put(record.imageKey() + "\n" + record.outputName(), record);
         }
         for (int r = 0; r < block.rows.size(); r++) {
+            checkCancelled(cancelCheck);
             Row row = block.rows.get(r);
-            drawRowLabel(g, row.label, x, cursorY, block.rowLabelWidth,
-                    config.cellSizePx(), rowFont);
+            if (config.rowLabelVisible()) {
+                drawRowLabel(g, row.key, row.label, x, cursorY,
+                        block.rowLabelWidth,
+                        config.cellSizePx(), rowFont,
+                        config.rowLabelOrientation(), config, report);
+            }
             for (int c = 0; c < columns.size(); c++) {
+                checkCancelled(cancelCheck);
                 int cellX = x0 + c * (config.cellSizePx() + config.innerColGapPx());
                 PanelRecord record = byKey.get(row.key + "\n" + columns.get(c));
                 drawCell(g, record, config, cellX, cursorY, config.cellSizePx(),
                         report);
+                checkCancelled(cancelCheck);
             }
             cursorY += config.cellSizePx() + block.rowGap;
         }
@@ -690,6 +825,59 @@ public final class PanelWriter {
         }
     }
 
+    private static void writeTiffStack(List<BufferedImage> images,
+            List<String> labels, File outputFile, double pixelWidthUm,
+            double pixelHeightUm) throws IOException {
+        BufferedImage first = images.get(0);
+        if (first == null) throw new IOException("TIFF stack contains a null image");
+        ImageStack stack = new ImageStack(first.getWidth(), first.getHeight());
+        for (int i = 0; i < images.size(); i++) {
+            BufferedImage image = images.get(i);
+            if (image == null || image.getWidth() != first.getWidth()
+                    || image.getHeight() != first.getHeight()) {
+                throw new IOException("TIFF stack channel dimensions differ");
+            }
+            String label = labels != null && i < labels.size()
+                    && labels.get(i) != null ? labels.get(i) : "Channel " + (i + 1);
+            stack.addSlice(label, new ColorProcessor(image));
+        }
+        // ImageJ normally omits "hyperstack=true" for a C-only stack because
+        // its isHyperStack() definition requires a second non-spatial axis.
+        // Persist the flag explicitly so Fiji opens this C x 1Z x 1T file with
+        // channel navigation instead of treating it as an untyped slice stack.
+        ImagePlus imagePlus = new ImagePlus(outputFile.getName(), stack) {
+            @Override
+            public boolean isHyperStack() {
+                return getNChannels() > 1 || super.isHyperStack();
+            }
+        };
+        imagePlus.setDimensions(images.size(), 1, 1);
+        imagePlus.setOpenAsHyperStack(images.size() > 1);
+        if (Double.isFinite(pixelWidthUm) && pixelWidthUm > 0.0
+                && Double.isFinite(pixelHeightUm) && pixelHeightUm > 0.0) {
+            Calibration calibration = imagePlus.getCalibration();
+            calibration.setUnit("micron");
+            calibration.pixelWidth = pixelWidthUm;
+            calibration.pixelHeight = pixelHeightUm;
+            imagePlus.setCalibration(calibration);
+        }
+        boolean saved;
+        try {
+            FileSaver saver = new FileSaver(imagePlus);
+            saved = images.size() > 1
+                    ? saver.saveAsTiffStack(outputFile.getAbsolutePath())
+                    : saver.saveAsTiff(outputFile.getAbsolutePath());
+        } finally {
+            imagePlus.changes = false;
+            imagePlus.close();
+            imagePlus.flush();
+        }
+        if (!saved || !outputFile.isFile()) {
+            throw new IOException("Could not write TIFF stack: "
+                    + outputFile.getAbsolutePath());
+        }
+    }
+
     private static void setPngDpi(IIOMetadata metadata, int dpi) throws IOException {
         if (metadata == null || metadata.isReadOnly()) return;
         int pixelsPerMeter = Math.max(1, (int) Math.round(dpi / 0.0254d));
@@ -745,45 +933,160 @@ public final class PanelWriter {
     }
 
     private static void drawColumnHeaders(Graphics2D g, List<String> columns,
-            int x0, int y, int cell, int colGap, int headerHeight, Font font) {
+            int x0, int y, int cell, int colGap, int headerHeight, Font font,
+            PanelConfig.TextOrientation orientation, int gap,
+            PanelConfig config, WriteReport report) {
         g.setFont(font);
         FontMetrics fm = g.getFontMetrics();
+        int labelHeight = Math.max(0, headerHeight - Math.max(0, gap));
         for (int i = 0; i < columns.size(); i++) {
             int x = x0 + i * (cell + colGap);
             g.setColor(PANEL_TEXT);
-            String label = fitSingleLine(columns.get(i), fm, cell);
-            int textX = x + Math.max(0, (cell - fm.stringWidth(label)) / 2);
-            int textY = y + Math.max(fm.getAscent(),
-                    (headerHeight + fm.getAscent()) / 2 - 1);
-            g.drawString(label, textX, textY);
+            String key = columns.get(i);
+            String label = fitSingleLine(config.externalLabelText(
+                    PanelConfig.ExternalLabelKind.COLUMN, key, key), fm, cell);
+            if (label.isEmpty()) continue;
+            Rectangle bounds;
+            if (orientation == null
+                    || orientation == PanelConfig.TextOrientation.HORIZONTAL) {
+                int textX = x + Math.max(0, (cell - fm.stringWidth(label)) / 2);
+                int textY = y + Math.max(fm.getAscent(),
+                        labelHeight - fm.getDescent());
+                g.drawString(label, textX, textY);
+                bounds = new Rectangle(textX, textY - fm.getAscent(),
+                        Math.max(1, fm.stringWidth(label)), fm.getHeight());
+            } else {
+                int textWidth = fm.stringWidth(label);
+                int centerY = y + Math.max(textWidth / 2,
+                        labelHeight - textWidth / 2);
+                drawRotatedCentered(g, label, x + cell / 2, centerY,
+                        orientation);
+                bounds = new Rectangle(x + cell / 2 - fm.getHeight() / 2,
+                        centerY - textWidth / 2, fm.getHeight(),
+                        Math.max(1, textWidth));
+            }
+            if (report != null) report.addExternalLabel(
+                    PanelConfig.ExternalLabelKind.COLUMN, key, label, bounds);
         }
     }
 
-    private static void drawGroupLabel(Graphics2D g, String label, int x, int y,
-            int width, int height, Font font) {
+    private static void drawGroupLabel(Graphics2D g, String key, int x, int y,
+            int width, int height, Font font, PanelConfig config,
+            WriteReport report) {
         if (height <= 0 || width <= 0) return;
         g.setFont(font);
         g.setColor(PANEL_TEXT);
         FontMetrics fm = g.getFontMetrics();
+        String label = config.externalLabelText(
+                PanelConfig.ExternalLabelKind.GROUP, key, key);
         String fitted = fitSingleLine(label, fm, width);
-        g.drawString(fitted, x, y + 2 + fm.getAscent());
+        if (fitted.isEmpty()) return;
+        int baseline = y + 2 + fm.getAscent();
+        int textWidth = fm.stringWidth(fitted);
+        int textX = alignedTextX(x, width, textWidth,
+                config.groupHeaderAlignment());
+        g.drawString(fitted, textX, baseline);
+        if (report != null) report.addExternalLabel(
+                PanelConfig.ExternalLabelKind.GROUP, key, fitted,
+                new Rectangle(textX, baseline - fm.getAscent(),
+                        Math.max(1, textWidth), fm.getHeight()));
     }
 
-    private static void drawRowLabel(Graphics2D g, String label, int x, int y,
-            int width, int height, Font font) {
+    private static int alignedTextX(int x, int width, int textWidth,
+            PanelConfig.TextAlignment alignment) {
+        int remaining = Math.max(0, width - Math.max(0, textWidth));
+        if (alignment == PanelConfig.TextAlignment.RIGHT) return x + remaining;
+        if (alignment == PanelConfig.TextAlignment.CENTER) {
+            return x + remaining / 2;
+        }
+        return x;
+    }
+
+    private static void drawRowLabel(Graphics2D g, String key, String fallback,
+            int x, int y,
+            int width, int height, Font font,
+            PanelConfig.TextOrientation orientation, PanelConfig config,
+            WriteReport report) {
         if (width <= 0 || height <= 0) return;
+        String label = config.externalLabelText(
+                PanelConfig.ExternalLabelKind.ROW, key, fallback);
+        if (label.isEmpty()) return;
         g.setFont(font);
         g.setColor(PANEL_TEXT);
         FontMetrics fm = g.getFontMetrics();
+        if (orientation != null
+                && orientation != PanelConfig.TextOrientation.HORIZONTAL) {
+            String fitted = fitSingleLine(label, fm, height);
+            drawRotatedCentered(g, fitted, x + width / 2, y + height / 2,
+                    orientation);
+            if (report != null) report.addExternalLabel(
+                    PanelConfig.ExternalLabelKind.ROW, key, fitted,
+                    new Rectangle(x, y, width, height));
+            return;
+        }
         List<String> lines = fitWrappedLines(label, fm, width, height);
         int lineHeight = fm.getHeight();
         int totalHeight = lines.size() * lineHeight;
         int textY = y + Math.max(fm.getAscent(),
                 (height - totalHeight) / 2 + fm.getAscent());
         for (String line : lines) {
-            g.drawString(line, x, textY);
+            g.drawString(line, x + Math.max(0, width - fm.stringWidth(line)), textY);
             textY += lineHeight;
         }
+        if (report != null) report.addExternalLabel(
+                PanelConfig.ExternalLabelKind.ROW, key, label,
+                new Rectangle(x, y, width, height));
+    }
+
+    private static void drawRotatedCentered(Graphics2D g, String text,
+            int centerX, int centerY, PanelConfig.TextOrientation orientation) {
+        java.awt.geom.AffineTransform before = g.getTransform();
+        try {
+            g.translate(centerX, centerY);
+            double angle = orientation == PanelConfig.TextOrientation.ROTATE_RIGHT
+                    ? Math.PI / 2.0 : -Math.PI / 2.0;
+            g.rotate(angle);
+            FontMetrics fm = g.getFontMetrics();
+            int textWidth = fm.stringWidth(text);
+            int baseline = (fm.getAscent() - fm.getDescent()) / 2;
+            g.drawString(text, -textWidth / 2, baseline);
+        } finally {
+            g.setTransform(before);
+        }
+    }
+
+    private static int headerLabelHeight(List<String> labels, FontMetrics fm,
+            int cell, PanelConfig.TextOrientation orientation) {
+        if (orientation == null
+                || orientation == PanelConfig.TextOrientation.HORIZONTAL) {
+            return fm.getHeight();
+        }
+        int height = fm.getHeight();
+        for (String label : labels) {
+            height = Math.max(height,
+                    fm.stringWidth(fitSingleLine(label, fm, cell)));
+        }
+        return height;
+    }
+
+    private static int rowLabelWidth(List<Row> rows, FontMetrics fm, int cell,
+            PanelConfig.TextOrientation orientation, PanelConfig config) {
+        if (rows == null || rows.isEmpty()) return 0;
+        if (orientation != null
+                && orientation != PanelConfig.TextOrientation.HORIZONTAL) {
+            return fm.getHeight();
+        }
+        return tightRowLabelWidth(rows, fm, cell, config);
+    }
+
+    private static List<String> displayColumnLabels(List<String> columns,
+            PanelConfig config) {
+        List<String> labels = new ArrayList<String>();
+        for (String column : columns) {
+            labels.add(config.externalLabelText(
+                    PanelConfig.ExternalLabelKind.COLUMN, column, column));
+        }
+        return labels;
     }
 
     private static void drawTextLabel(Graphics2D g, String text,
@@ -955,11 +1258,12 @@ public final class PanelWriter {
     }
 
     private static int tightRowLabelWidth(List<Row> rows, FontMetrics fm,
-            int cell) {
+            int cell, PanelConfig config) {
         int maxTextWidth = 0;
         int longestWordWidth = 0;
         for (Row row : rows) {
-            String source = row == null || row.label == null ? "" : row.label.trim();
+            String source = row == null ? "" : config.externalLabelText(
+                    PanelConfig.ExternalLabelKind.ROW, row.key, row.label).trim();
             maxTextWidth = Math.max(maxTextWidth, fm.stringWidth(source));
             if (!source.isEmpty()) {
                 String[] words = source.split("\\s+");
@@ -978,17 +1282,19 @@ public final class PanelWriter {
                 Math.max(minWidth, Math.min(260, Math.max(96, cell))));
         int availableHeight = Math.max(fm.getHeight(), cell - 2);
         for (int width = minWidth; width <= maxWidth; width += 4) {
-            if (rowLabelsFit(rows, fm, width, availableHeight)) return width;
+            if (rowLabelsFit(rows, fm, width, availableHeight, config)) return width;
         }
         return maxWidth;
     }
 
     private static boolean rowLabelsFit(List<Row> rows, FontMetrics fm,
-            int width, int height) {
+            int width, int height, PanelConfig config) {
         int lineHeight = fm.getHeight();
         int maxLines = Math.max(1, height / Math.max(1, lineHeight));
         for (Row row : rows) {
-            List<String> lines = wrap(row == null ? "" : row.label, fm, width);
+            String label = row == null ? "" : config.externalLabelText(
+                    PanelConfig.ExternalLabelKind.ROW, row.key, row.label);
+            List<String> lines = wrap(label, fm, width);
             if (lines.size() > maxLines) return false;
             for (String line : lines) {
                 if (fm.stringWidth(line) > width) return false;
@@ -1067,6 +1373,13 @@ public final class PanelWriter {
                 || position == PanelConfig.Position.TOP_RIGHT;
     }
 
+    private static void checkCancelled(CancellationCheck cancelCheck)
+            throws IOException {
+        if (cancelCheck != null && cancelCheck.isCancelled()) {
+            throw new IOException("Export cancelled.");
+        }
+    }
+
     private static int scaledDimension(int value, double scale) {
         double safeScale = scale > 0.0 && Double.isFinite(scale) ? scale : 1.0;
         return Math.max(1, (int) Math.round(value * safeScale));
@@ -1117,18 +1430,57 @@ public final class PanelWriter {
     public static final class WriteReport {
         private final LinkedHashSet<String> uncalibratedImages =
                 new LinkedHashSet<String>();
+        private final LinkedHashSet<String> scaleBarsThatDidNotFit =
+                new LinkedHashSet<String>();
+        private final List<ExternalLabelBox> externalLabels =
+                new ArrayList<ExternalLabelBox>();
+        private final List<ImageBox> imageBoxes = new ArrayList<ImageBox>();
+        private boolean scaleBarDrawn;
 
-        void addUncalibrated(PanelRecord record) {
+        public void addUncalibrated(PanelRecord record) {
             if (record == null) return;
-            File image = record.imageFile();
+            File image = record.sourceFile();
             String name = image == null ? record.imageKey() : image.getAbsolutePath();
             if (name != null && !name.trim().isEmpty()) {
                 uncalibratedImages.add(name.trim());
             }
         }
 
-        void merge(WriteReport other) {
-            if (other != null) uncalibratedImages.addAll(other.uncalibratedImages);
+        public void addScaleBarDrawn() {
+            scaleBarDrawn = true;
+        }
+
+        public void addScaleBarDidNotFit(PanelRecord record) {
+            if (record == null) return;
+            File image = record.sourceFile();
+            String name = image == null ? record.imageKey() : image.getAbsolutePath();
+            if (name != null && !name.trim().isEmpty()) {
+                scaleBarsThatDidNotFit.add(name.trim());
+            }
+        }
+
+        public void addExternalLabel(PanelConfig.ExternalLabelKind kind,
+                String key, String text, Rectangle bounds) {
+            if (kind == null || bounds == null || bounds.width <= 0
+                    || bounds.height <= 0) return;
+            externalLabels.add(new ExternalLabelBox(kind, key, text, bounds));
+        }
+
+        public void addImageBox(PanelRecord record, Rectangle bounds) {
+            if (record == null || bounds == null || bounds.width <= 0
+                    || bounds.height <= 0) return;
+            imageBoxes.add(new ImageBox(record.imageId(), record.imageKey(),
+                    record.outputName(), bounds));
+        }
+
+        public void merge(WriteReport other) {
+            if (other != null) {
+                uncalibratedImages.addAll(other.uncalibratedImages);
+                scaleBarsThatDidNotFit.addAll(other.scaleBarsThatDidNotFit);
+                externalLabels.addAll(other.externalLabels);
+                imageBoxes.addAll(other.imageBoxes);
+                scaleBarDrawn |= other.scaleBarDrawn;
+            }
         }
 
         public List<String> uncalibratedImages() {
@@ -1139,6 +1491,69 @@ public final class PanelWriter {
         public boolean hasUnavailableScaleBars() {
             return !uncalibratedImages.isEmpty();
         }
+
+        public boolean hasDrawnScaleBar() {
+            return scaleBarDrawn;
+        }
+
+        public List<String> scaleBarsThatDidNotFit() {
+            return Collections.unmodifiableList(
+                    new ArrayList<String>(scaleBarsThatDidNotFit));
+        }
+
+        public boolean hasScaleBarsThatDidNotFit() {
+            return !scaleBarsThatDidNotFit.isEmpty();
+        }
+
+        public List<ExternalLabelBox> externalLabels() {
+            return Collections.unmodifiableList(
+                    new ArrayList<ExternalLabelBox>(externalLabels));
+        }
+
+        public List<ImageBox> imageBoxes() {
+            return Collections.unmodifiableList(
+                    new ArrayList<ImageBox>(imageBoxes));
+        }
+    }
+
+    public static final class ExternalLabelBox {
+        private final PanelConfig.ExternalLabelKind kind;
+        private final String key;
+        private final String text;
+        private final Rectangle bounds;
+
+        private ExternalLabelBox(PanelConfig.ExternalLabelKind kind, String key,
+                String text, Rectangle bounds) {
+            this.kind = kind;
+            this.key = key == null ? "" : key;
+            this.text = text == null ? "" : text;
+            this.bounds = new Rectangle(bounds);
+        }
+
+        public PanelConfig.ExternalLabelKind kind() { return kind; }
+        public String key() { return key; }
+        public String text() { return text; }
+        public Rectangle bounds() { return new Rectangle(bounds); }
+    }
+
+    public static final class ImageBox {
+        private final String imageId;
+        private final String imageKey;
+        private final String outputName;
+        private final Rectangle bounds;
+
+        private ImageBox(String imageId, String imageKey, String outputName,
+                Rectangle bounds) {
+            this.imageId = imageId == null ? "" : imageId;
+            this.imageKey = imageKey == null ? "" : imageKey;
+            this.outputName = outputName == null ? "" : outputName;
+            this.bounds = new Rectangle(bounds);
+        }
+
+        public String imageId() { return imageId; }
+        public String imageKey() { return imageKey; }
+        public String outputName() { return outputName; }
+        public Rectangle bounds() { return new Rectangle(bounds); }
     }
 
     private static final class TileLayout {

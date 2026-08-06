@@ -10,6 +10,7 @@ package fpb.render;
 
 import fpb.io.ImageLoader;
 import fpb.io.ProgressCallback;
+import fpb.util.CancellationCheck;
 
 import org.junit.Test;
 
@@ -88,6 +89,39 @@ public class FPBRendererTest {
                 1, 1);
 
         assertArrayEquals(new int[] { 0x010202 }, FastRaster.pixels(panel.mergeImage()));
+    }
+
+    @Test
+    public void fullResolutionRasterRenderingPollsCancellation() throws Exception {
+        ImageLoader.LoadResult loaded = load("eightbit.tif");
+        final java.util.concurrent.atomic.AtomicInteger polls =
+                new java.util.concurrent.atomic.AtomicInteger();
+        try {
+            new FPBRenderer().renderPanel(loaded.planeCache(),
+                    loaded.histogramCache(), 0,
+                    Arrays.asList(request(0, "DAPI", ChannelColour.GREY,
+                            new DisplayRange(0, 255))), 512, 512,
+                    new CancellationCheck() {
+                        @Override
+                        public boolean isCancelled() {
+                            return polls.incrementAndGet() >= 3;
+                        }
+                    });
+            throw new AssertionError("Expected rendering cancellation");
+        } catch (java.io.IOException expected) {
+            assertEquals("Export cancelled.", expected.getMessage());
+        }
+        assertTrue(polls.get() >= 3);
+    }
+
+    @Test
+    public void previewDimensionsAspectFitWithoutStretching() {
+        assertArrayEquals(new int[] { 150, 75 },
+                FPBRenderer.aspectFitDimensions(1000, 500, 150, 150));
+        assertArrayEquals(new int[] { 75, 150 },
+                FPBRenderer.aspectFitDimensions(500, 1000, 150, 150));
+        assertArrayEquals(new int[] { 150, 150 },
+                FPBRenderer.aspectFitDimensions(500, 500, 150, 150));
     }
 
     private static FPBRenderer.PanelRender renderSingle(ImageLoader.LoadResult loaded,

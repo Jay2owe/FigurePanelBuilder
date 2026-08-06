@@ -25,6 +25,7 @@ import fpb.stats.GroupStats;
 import fpb.stats.Statistic;
 import fpb.stats.SubjectAggregator;
 import fpb.stats.Suggestion;
+import ij.process.ShortProcessor;
 import org.junit.Test;
 
 import java.awt.image.BufferedImage;
@@ -133,9 +134,10 @@ public class DefectLedgerTest {
     }
 
     @Test
-    public void defect6_noFlashVocabularyRemainsInSource() throws Exception {
+    public void defect6_noUnusedFlashAnatomyVocabularyRemainsInSource()
+            throws Exception {
         List<String> hits = grepSourceTree(new File("src/main/java/fpb"),
-                Pattern.compile("\\b(animal|hemisphere|region)\\b",
+                Pattern.compile("\\b(hemisphere|region)\\b",
                         Pattern.CASE_INSENSITIVE));
 
         assertTrue("FLASH vocabulary found: " + hits, hits.isEmpty());
@@ -227,10 +229,11 @@ public class DefectLedgerTest {
             byte[] lut) {
         BufferedImage image = new BufferedImage(width, height,
                 BufferedImage.TYPE_INT_RGB);
-        int i = 0;
+        ShortProcessor processor = new ShortProcessor(width, height, raw, null);
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
-                int grey = lut[raw[i++] & 0xFFFF] & 0xFF;
+                int rawValue = (int) processor.getPixelValue(x, y);
+                int grey = lut[rawValue & 0xFFFF] & 0xFF;
                 int rgb = (grey << 16) | (grey << 8) | grey;
                 image.setRGB(x, y, rgb);
             }

@@ -9,6 +9,8 @@
 package fpb.stats;
 
 import fpb.io.HistogramCache;
+import fpb.io.ImageLoader;
+import fpb.io.ImageSource;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -20,27 +22,57 @@ import java.util.Map;
 /** Built-in image statistics computed from full-resolution histograms. */
 public final class Statistic {
 
+    /** Source-channel sentinel used by statistics that describe the whole image. */
+    public static final int CHANNEL_INDEPENDENT = -1;
+
     public static final String BRIGHTEST_ONE_PERCENT_NAME =
-            "sampled_max_projection_brightest_1_percent_mean_v1";
+            "full_resolution_max_projection_brightest_1_percent_mean_v1";
+    public static final String BRIGHTEST_ONE_PERCENT_FIRST_SLICE_NAME =
+            "full_resolution_first_slice_brightest_1_percent_mean_v1";
     public static final double BRIGHTEST_FRACTION = 0.01;
 
     private Statistic() {}
 
     public static ImageValues brightestOnePercentMeans(HistogramCache cache) {
         if (cache == null) throw new IllegalArgumentException("cache must not be null");
-        Map<File, Map<Integer, Double>> values =
-                new LinkedHashMap<File, Map<Integer, Double>>();
+        List<Integer> indices = new ArrayList<Integer>();
+        for (int i = 0; i < cache.channelCount(); i++) indices.add(Integer.valueOf(i));
+        return brightestOnePercentMeans(cache, indices,
+                defaultChannelNames(cache.channelCount()), ImageLoader.ZMode.MAX);
+    }
+
+    public static ImageValues brightestOnePercentMeans(HistogramCache cache,
+            List<Integer> sourceChannelIndices, List<String> channelNames,
+            ImageLoader.ZMode zMode) {
+        if (cache == null) throw new IllegalArgumentException("cache must not be null");
+        if (sourceChannelIndices == null || sourceChannelIndices.isEmpty()) {
+            throw new IllegalArgumentException("sourceChannelIndices must not be empty");
+        }
+        if (channelNames == null || channelNames.size() != sourceChannelIndices.size()) {
+            throw new IllegalArgumentException(
+                    "channelNames must match sourceChannelIndices");
+        }
+        Map<ImageSource, Map<Integer, Double>> values =
+                new LinkedHashMap<ImageSource, Map<Integer, Double>>();
         for (int imageIndex = 0; imageIndex < cache.imageCount(); imageIndex++) {
             HistogramCache.ImageHistograms image = cache.image(imageIndex);
             Map<Integer, Double> byChannel = new LinkedHashMap<Integer, Double>();
-            for (int channelIndex = 0; channelIndex < image.channelCount(); channelIndex++) {
-                byChannel.put(Integer.valueOf(channelIndex), Double.valueOf(
-                        brightestOnePercentMean(image.histogram(channelIndex))));
+            for (int logicalIndex = 0; logicalIndex < sourceChannelIndices.size();
+                    logicalIndex++) {
+                int sourceIndex = sourceChannelIndices.get(logicalIndex).intValue();
+                if (sourceIndex < 0 || sourceIndex >= image.channelCount()) {
+                    throw new IllegalArgumentException("source channel index is outside cache");
+                }
+                byChannel.put(Integer.valueOf(logicalIndex), Double.valueOf(
+                        brightestOnePercentMean(image.histogram(sourceIndex))));
             }
-            values.put(image.sourceFile(), byChannel);
+            values.put(image.source(), byChannel);
         }
-        return ImageValues.of(values, defaultChannelNames(cache.channelCount()),
-                BRIGHTEST_ONE_PERCENT_NAME);
+        ImageLoader.ZMode mode = zMode == null ? ImageLoader.ZMode.MAX : zMode;
+        String name = mode == ImageLoader.ZMode.FIRST
+                ? BRIGHTEST_ONE_PERCENT_FIRST_SLICE_NAME
+                : BRIGHTEST_ONE_PERCENT_NAME;
+        return ImageValues.ofSources(values, channelNames, sourceChannelIndices, name);
     }
 
     public static double brightestOnePercentMean(HistogramCache.Histogram histogram) {
@@ -84,34 +116,51 @@ public final class Statistic {
 
     /** Immutable image-level values indexed by source file and zero-based channel. */
     public static final class ImageValues {
-        private final Map<String, File> filesByPath;
-        private final Map<String, Map<Integer, Double>> valuesByPath;
+        private final Map<String, ImageSource> sourcesByKey;
+        private final Map<String, Map<Integer, Double>> valuesByKey;
         private final List<String> channelNames;
+        private final List<Integer> sourceChannelIndices;
         private final String statisticName;
 
         private ImageValues(Map<File, Map<Integer, Double>> valuesByFile,
-                List<String> channelNames, String statisticName) {
-            if (valuesByFile == null) {
-                throw new IllegalArgumentException("valuesByFile must not be null");
+                List<String> channelNames, List<Integer> sourceChannelIndices,
+                String statisticName) {
+            this(toSourceValues(valuesByFile), channelNames, sourceChannelIndices,
+                    statisticName, true);
+        }
+
+        private ImageValues(Map<ImageSource, Map<Integer, Double>> valuesBySource,
+                List<String> channelNames, List<Integer> sourceChannelIndices,
+                String statisticName, boolean sourceMap) {
+            if (valuesBySource == null) {
+                throw new IllegalArgumentException("valuesBySource must not be null");
             }
             if (channelNames == null || channelNames.isEmpty()) {
                 throw new IllegalArgumentException("channelNames must not be empty");
             }
             this.channelNames = Collections.unmodifiableList(
                     new ArrayList<String>(channelNames));
+            if (sourceChannelIndices == null
+                    || sourceChannelIndices.size() != channelNames.size()) {
+                throw new IllegalArgumentException(
+                        "sourceChannelIndices must match channelNames");
+            }
+            this.sourceChannelIndices = Collections.unmodifiableList(
+                    new ArrayList<Integer>(sourceChannelIndices));
             this.statisticName = clean(statisticName).isEmpty()
                     ? "statistic" : clean(statisticName);
 
-            Map<String, File> files = new LinkedHashMap<String, File>();
+            Map<String, ImageSource> sources = new LinkedHashMap<String, ImageSource>();
             Map<String, Map<Integer, Double>> values =
                     new LinkedHashMap<String, Map<Integer, Double>>();
-            for (Map.Entry<File, Map<Integer, Double>> entry : valuesByFile.entrySet()) {
-                File file = entry.getKey();
-                if (file == null) {
-                    throw new IllegalArgumentException("valuesByFile contains a null file");
+            for (Map.Entry<ImageSource, Map<Integer, Double>> entry
+                    : valuesBySource.entrySet()) {
+                ImageSource source = entry.getKey();
+                if (source == null) {
+                    throw new IllegalArgumentException("valuesBySource contains a null source");
                 }
-                String path = normalizedPath(file);
-                files.put(path, file.getAbsoluteFile());
+                String key = source.key();
+                sources.put(key, source);
                 Map<Integer, Double> byChannel = new LinkedHashMap<Integer, Double>();
                 if (entry.getValue() != null) {
                     for (Map.Entry<Integer, Double> channel : entry.getValue().entrySet()) {
@@ -127,15 +176,32 @@ public final class Statistic {
                         }
                     }
                 }
-                values.put(path, Collections.unmodifiableMap(byChannel));
+                values.put(key, Collections.unmodifiableMap(byChannel));
             }
-            filesByPath = Collections.unmodifiableMap(files);
-            valuesByPath = Collections.unmodifiableMap(values);
+            sourcesByKey = Collections.unmodifiableMap(sources);
+            valuesByKey = Collections.unmodifiableMap(values);
         }
 
         public static ImageValues of(Map<File, Map<Integer, Double>> valuesByFile,
                 List<String> channelNames, String statisticName) {
-            return new ImageValues(valuesByFile, channelNames, statisticName);
+            List<Integer> indices = new ArrayList<Integer>();
+            for (int i = 0; i < channelNames.size(); i++) indices.add(Integer.valueOf(i));
+            return new ImageValues(valuesByFile, channelNames, indices, statisticName);
+        }
+
+        public static ImageValues ofSources(
+                Map<ImageSource, Map<Integer, Double>> valuesBySource,
+                List<String> channelNames, List<Integer> sourceChannelIndices,
+                String statisticName) {
+            return new ImageValues(valuesBySource, channelNames,
+                    sourceChannelIndices, statisticName, true);
+        }
+
+        public static ImageValues of(Map<File, Map<Integer, Double>> valuesByFile,
+                List<String> channelNames, List<Integer> sourceChannelIndices,
+                String statisticName) {
+            return new ImageValues(valuesByFile, channelNames, sourceChannelIndices,
+                    statisticName);
         }
 
         public static ImageValues singleChannel(Map<File, Double> valuesByFile,
@@ -152,7 +218,29 @@ public final class Statistic {
             }
             List<String> names = new ArrayList<String>();
             names.add(clean(channelName).isEmpty() ? "Value" : clean(channelName));
-            return new ImageValues(nested, names, statisticName);
+            return new ImageValues(nested, names,
+                    Collections.singletonList(Integer.valueOf(CHANNEL_INDEPENDENT)),
+                    statisticName);
+        }
+
+        public static ImageValues singleChannelSources(
+                Map<ImageSource, Double> valuesBySource,
+                String channelName, String statisticName) {
+            if (valuesBySource == null) {
+                throw new IllegalArgumentException("valuesBySource must not be null");
+            }
+            Map<ImageSource, Map<Integer, Double>> nested =
+                    new LinkedHashMap<ImageSource, Map<Integer, Double>>();
+            for (Map.Entry<ImageSource, Double> entry : valuesBySource.entrySet()) {
+                Map<Integer, Double> channel = new LinkedHashMap<Integer, Double>();
+                channel.put(Integer.valueOf(0), entry.getValue());
+                nested.put(entry.getKey(), channel);
+            }
+            List<String> names = new ArrayList<String>();
+            names.add(clean(channelName).isEmpty() ? "Value" : clean(channelName));
+            return new ImageValues(nested, names,
+                    Collections.singletonList(Integer.valueOf(CHANNEL_INDEPENDENT)),
+                    statisticName, true);
         }
 
         public int channelCount() {
@@ -167,23 +255,48 @@ public final class Statistic {
             return channelNames;
         }
 
+        public int sourceChannelIndex(int logicalChannelIndex) {
+            return sourceChannelIndices.get(logicalChannelIndex).intValue();
+        }
+
         public String statisticName() {
             return statisticName;
         }
 
         public Double value(File sourceFile, int channelIndex) {
             if (sourceFile == null) return null;
-            Map<Integer, Double> byChannel = valuesByPath.get(normalizedPath(sourceFile));
+            return value(ImageSource.file(sourceFile), channelIndex);
+        }
+
+        public Double value(ImageSource source, int channelIndex) {
+            if (source == null) return null;
+            Map<Integer, Double> byChannel = valuesByKey.get(source.key());
             return byChannel == null ? null : byChannel.get(Integer.valueOf(channelIndex));
         }
 
         public Map<File, Map<Integer, Double>> valuesByFile() {
             Map<File, Map<Integer, Double>> copy =
                     new LinkedHashMap<File, Map<Integer, Double>>();
-            for (Map.Entry<String, Map<Integer, Double>> entry : valuesByPath.entrySet()) {
-                copy.put(filesByPath.get(entry.getKey()), entry.getValue());
+            for (Map.Entry<String, Map<Integer, Double>> entry : valuesByKey.entrySet()) {
+                copy.put(sourcesByKey.get(entry.getKey()).file(), entry.getValue());
             }
             return Collections.unmodifiableMap(copy);
+        }
+
+        private static Map<ImageSource, Map<Integer, Double>> toSourceValues(
+                Map<File, Map<Integer, Double>> valuesByFile) {
+            if (valuesByFile == null) {
+                throw new IllegalArgumentException("valuesByFile must not be null");
+            }
+            Map<ImageSource, Map<Integer, Double>> sources =
+                    new LinkedHashMap<ImageSource, Map<Integer, Double>>();
+            for (Map.Entry<File, Map<Integer, Double>> entry : valuesByFile.entrySet()) {
+                if (entry.getKey() == null) {
+                    throw new IllegalArgumentException("valuesByFile contains a null file");
+                }
+                sources.put(ImageSource.file(entry.getKey()), entry.getValue());
+            }
+            return sources;
         }
     }
 

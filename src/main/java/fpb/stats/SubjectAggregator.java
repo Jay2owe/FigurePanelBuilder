@@ -33,8 +33,11 @@ public final class SubjectAggregator {
                 new LinkedHashMap<String, List<Accumulator>>();
         LinkedHashMap<String, List<String>> subjectsByGroup =
                 new LinkedHashMap<String, List<String>>();
+        LinkedHashMap<String, List<SectionObservation>> sectionsByGroup =
+                new LinkedHashMap<String, List<SectionObservation>>();
 
-        for (MetadataRow row : table.rows()) {
+        for (int rowIndex = 0; rowIndex < table.rows().size(); rowIndex++) {
+            MetadataRow row = table.rows().get(rowIndex);
             String group = Statistic.clean(row.group);
             String subject = Statistic.clean(row.subject);
             if (group.isEmpty() || subject.isEmpty()) continue;
@@ -52,11 +55,27 @@ public final class SubjectAggregator {
                 subjects.add(subject);
             }
 
+            double[] sectionValues = new double[imageValues.channelCount()];
+            java.util.Arrays.fill(sectionValues, Double.NaN);
+            boolean hasSectionValue = false;
             for (int channel = 0; channel < imageValues.channelCount(); channel++) {
-                Double value = imageValues.value(row.file, channel);
+                Double value = imageValues.value(row.source, channel);
                 if (value != null && Double.isFinite(value.doubleValue())) {
                     channels.get(channel).add(value.doubleValue());
+                    sectionValues[channel] = value.doubleValue();
+                    hasSectionValue = true;
                 }
+            }
+            if (hasSectionValue) {
+                List<SectionObservation> sections = sectionsByGroup.get(group);
+                if (sections == null) {
+                    sections = new ArrayList<SectionObservation>();
+                    sectionsByGroup.put(group, sections);
+                }
+                String sourceLabel = row.source.isSeries()
+                        ? row.source.seriesLabel() : row.file.getName();
+                sections.add(new SectionObservation(rowIndex, group, subject,
+                        Statistic.clean(row.section), sourceLabel, sectionValues));
             }
         }
 
@@ -67,8 +86,13 @@ public final class SubjectAggregator {
             dataByKey.put(entry.getKey(), new SubjectData(
                     split[0], split[1], entry.getValue()));
         }
-        return new SubjectStats(imageValues.channelNames(), imageValues.statisticName(),
-                subjectsByGroup, dataByKey);
+        List<Integer> sourceChannelIndices = new ArrayList<Integer>();
+        for (int i = 0; i < imageValues.channelCount(); i++) {
+            sourceChannelIndices.add(Integer.valueOf(imageValues.sourceChannelIndex(i)));
+        }
+        return new SubjectStats(imageValues.channelNames(), sourceChannelIndices,
+                imageValues.statisticName(), subjectsByGroup, dataByKey,
+                sectionsByGroup);
     }
 
     private static List<Accumulator> newAccumulators(int channelCount) {
@@ -102,15 +126,21 @@ public final class SubjectAggregator {
 
     public static final class SubjectStats {
         private final List<String> channelNames;
+        private final List<Integer> sourceChannelIndices;
         private final String statisticName;
         private final Map<String, List<String>> subjectsByGroup;
         private final Map<String, SubjectData> dataByKey;
+        private final Map<String, List<SectionObservation>> sectionsByGroup;
 
-        private SubjectStats(List<String> channelNames, String statisticName,
+        private SubjectStats(List<String> channelNames,
+                List<Integer> sourceChannelIndices, String statisticName,
                 Map<String, List<String>> subjectsByGroup,
-                Map<String, SubjectData> dataByKey) {
+                Map<String, SubjectData> dataByKey,
+                Map<String, List<SectionObservation>> sectionsByGroup) {
             this.channelNames = Collections.unmodifiableList(
                     new ArrayList<String>(channelNames));
+            this.sourceChannelIndices = Collections.unmodifiableList(
+                    new ArrayList<Integer>(sourceChannelIndices));
             this.statisticName = statisticName;
             Map<String, List<String>> subjectCopy =
                     new LinkedHashMap<String, List<String>>();
@@ -121,6 +151,14 @@ public final class SubjectAggregator {
             this.subjectsByGroup = Collections.unmodifiableMap(subjectCopy);
             this.dataByKey = Collections.unmodifiableMap(
                     new LinkedHashMap<String, SubjectData>(dataByKey));
+            Map<String, List<SectionObservation>> sectionCopy =
+                    new LinkedHashMap<String, List<SectionObservation>>();
+            for (Map.Entry<String, List<SectionObservation>> entry
+                    : sectionsByGroup.entrySet()) {
+                sectionCopy.put(entry.getKey(), Collections.unmodifiableList(
+                        new ArrayList<SectionObservation>(entry.getValue())));
+            }
+            this.sectionsByGroup = Collections.unmodifiableMap(sectionCopy);
         }
 
         public int channelCount() {
@@ -133,6 +171,10 @@ public final class SubjectAggregator {
 
         public List<String> channelNames() {
             return channelNames;
+        }
+
+        public int sourceChannelIndex(int logicalChannelIndex) {
+            return sourceChannelIndices.get(logicalChannelIndex).intValue();
         }
 
         public String statisticName() {
@@ -161,8 +203,48 @@ public final class SubjectAggregator {
             return data == null ? 0 : data.sectionCount(channelIndex);
         }
 
+        public List<SectionObservation> sectionsInGroup(String group) {
+            List<SectionObservation> sections = sectionsByGroup.get(group);
+            return sections == null
+                    ? Collections.<SectionObservation>emptyList() : sections;
+        }
+
         SubjectData subjectData(String group, String subject) {
             return dataByKey.get(key(group, subject));
+        }
+    }
+
+    /** One original image/section and its unaggregated values across channels. */
+    public static final class SectionObservation {
+        private final int imageIndex;
+        private final String group;
+        private final String subject;
+        private final String section;
+        private final String sourceLabel;
+        private final double[] values;
+
+        SectionObservation(int imageIndex, String group, String subject,
+                String section, String sourceLabel, double[] values) {
+            this.imageIndex = imageIndex;
+            this.group = group;
+            this.subject = subject;
+            this.section = section;
+            this.sourceLabel = sourceLabel;
+            this.values = values.clone();
+        }
+
+        public int imageIndex() { return imageIndex; }
+        public String group() { return group; }
+        public String subject() { return subject; }
+        public String section() { return section; }
+        public String sourceLabel() { return sourceLabel; }
+
+        public Double value(int logicalChannelIndex) {
+            if (logicalChannelIndex < 0 || logicalChannelIndex >= values.length) {
+                return null;
+            }
+            double value = values[logicalChannelIndex];
+            return Double.isFinite(value) ? Double.valueOf(value) : null;
         }
     }
 

@@ -39,9 +39,13 @@ public final class RegexStrategy implements LabelStrategy {
     }
 
     public void apply(MetadataRow row) {
-        Matcher matcher = pattern.matcher(row.file.getName());
+        String sourceName = row.source.isSeries()
+                ? row.source.seriesLabel() : row.file.getName();
+        Matcher matcher = pattern.matcher(sourceName);
         if (!matcher.matches()) {
-            row.clearLabels("Filename did not match the regex");
+            row.clearLabels(row.source.isSeries()
+                    ? "Series name did not match the regex"
+                    : "Filename did not match the regex");
             return;
         }
         if (matcher.groupCount() < groupCapture
@@ -53,7 +57,8 @@ public final class RegexStrategy implements LabelStrategy {
         String group = matcher.group(groupCapture);
         String subject = subjectCapture > 0
                 ? matcher.group(subjectCapture)
-                : MetadataTable.basenameWithoutExtension(row.file);
+                : (row.source.isSeries() ? row.source.seriesLabel()
+                : MetadataTable.basenameWithoutExtension(row.file));
         String section = sectionCapture > 0 ? matcher.group(sectionCapture) : "";
         row.setLabels(group, subject, section);
     }

@@ -8,6 +8,8 @@
  */
 package fpb.meta;
 
+import fpb.io.ImageSource;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -48,10 +50,23 @@ public final class MetadataTable {
         return new MetadataTable(root, rowsFor(files));
     }
 
+    public static MetadataTable emptySources(File root, List<ImageSource> sources)
+            throws IOException {
+        return new MetadataTable(root, rowsForSources(sources));
+    }
+
     public static MetadataTable fromFiles(File root, List<File> files,
             LabelStrategy strategy) throws IOException {
         if (strategy == null) throw new IllegalArgumentException("strategy must not be null");
         MetadataTable table = empty(root, files);
+        strategy.apply(table);
+        return table;
+    }
+
+    public static MetadataTable fromSources(File root, List<ImageSource> sources,
+            LabelStrategy strategy) throws IOException {
+        if (strategy == null) throw new IllegalArgumentException("strategy must not be null");
+        MetadataTable table = emptySources(root, sources);
         strategy.apply(table);
         return table;
     }
@@ -65,6 +80,24 @@ public final class MetadataTable {
         if (hasImageBearingSubfolders(root, ordered)) return new SubfolderStrategy();
         char separator = mostCommonSeparator(ordered);
         return new TokenStrategy(separator, guessAssignment(ordered, separator));
+    }
+
+    public static LabelStrategy suggestSources(File root, List<ImageSource> sources) {
+        if (sources == null) throw new IllegalArgumentException("sources must not be null");
+        List<File> files = new ArrayList<File>();
+        List<String> seriesLabels = new ArrayList<String>();
+        LinkedHashSet<String> seen = new LinkedHashSet<String>();
+        for (ImageSource source : sources) {
+            if (source == null) throw new IllegalArgumentException("sources contains null");
+            if (seen.add(source.file().getAbsolutePath())) files.add(source.file());
+            if (source.isSeries()) seriesLabels.add(source.seriesLabel());
+        }
+        if (!seriesLabels.isEmpty()) {
+            char separator = mostCommonSeparatorInValues(seriesLabels);
+            return TokenStrategy.forSeriesLabels(separator,
+                    TokenStrategy.guessSeriesAssignment(seriesLabels, separator));
+        }
+        return suggest(root, files);
     }
 
     public File root() {
@@ -106,7 +139,7 @@ public final class MetadataTable {
     }
 
     public String summary() {
-        return fileCount() + " files -> " + groupCount() + " groups, "
+        return fileCount() + " images -> " + groupCount() + " groups, "
                 + subjectCount() + " subjects, " + unassignedCount() + " unassigned";
     }
 
@@ -131,16 +164,28 @@ public final class MetadataTable {
 
     public String csvFileName(MetadataRow row) {
         if (row == null) throw new IllegalArgumentException("row must not be null");
-        if (root == null) return row.file.getName();
+        String fileName;
+        if (root == null) {
+            fileName = row.file.getName();
+            return appendSeriesId(fileName, row.source);
+        }
         try {
             Path rootPath = root.toPath().toAbsolutePath().normalize();
             Path filePath = row.file.toPath().toAbsolutePath().normalize();
             Path relative = rootPath.relativize(filePath);
             String value = relative.toString().replace(File.separatorChar, '/');
-            return value.isEmpty() ? row.file.getName() : value;
+            fileName = value.isEmpty() ? row.file.getName() : value;
         } catch (IllegalArgumentException outsideRoot) {
-            return row.file.getName();
+            fileName = row.file.getName();
         }
+        return appendSeriesId(fileName, row.source);
+    }
+
+    /** Human-readable source label used in the metadata table. */
+    public static String displayName(MetadataRow row) {
+        if (row == null) return "";
+        if (!row.source.isSeries()) return row.file.getName();
+        return row.file.getName() + " — " + row.source.seriesLabel();
     }
 
     static List<File> normalizedSortedFiles(List<File> files) {
@@ -168,11 +213,24 @@ public final class MetadataTable {
         return dot <= 0 ? name : name.substring(0, dot);
     }
 
+    static String containerCondition(MetadataRow row) {
+        return row == null || !row.source.isSeries()
+                ? "" : basenameWithoutExtension(row.file);
+    }
+
+    static String seriesSubject(MetadataRow row) {
+        return row == null || !row.source.isSeries()
+                ? "" : row.source.seriesLabel();
+    }
+
     static Comparator<MetadataRow> rowComparator() {
         return new Comparator<MetadataRow>() {
             @Override
             public int compare(MetadataRow left, MetadataRow right) {
-                return fileComparator().compare(left.file, right.file);
+                int file = fileComparator().compare(left.file, right.file);
+                if (file != 0) return file;
+                return Integer.compare(left.source.seriesIndex(),
+                        right.source.seriesIndex());
             }
         };
     }
@@ -197,6 +255,29 @@ public final class MetadataTable {
         List<MetadataRow> rows = new ArrayList<MetadataRow>(ordered.size());
         for (File file : ordered) rows.add(new MetadataRow(file));
         return rows;
+    }
+
+    private static List<MetadataRow> rowsForSources(List<ImageSource> sources)
+            throws IOException {
+        if (sources == null) throw new IllegalArgumentException("sources must not be null");
+        List<MetadataRow> rows = new ArrayList<MetadataRow>(sources.size());
+        LinkedHashSet<String> keys = new LinkedHashSet<String>();
+        for (ImageSource source : sources) {
+            if (source == null) throw new IllegalArgumentException("sources contains null");
+            if (!isSupportedImage(source.file())) {
+                throw new IOException("Metadata table can only be built from supported image files.");
+            }
+            if (!keys.add(source.key())) {
+                throw new IOException("Duplicate image source: " + source);
+            }
+            rows.add(new MetadataRow(source));
+        }
+        return rows;
+    }
+
+    private static String appendSeriesId(String fileName, ImageSource source) {
+        if (source == null || !source.isSeries()) return fileName;
+        return fileName + "#series=" + (source.seriesIndex() + 1);
     }
 
     private static boolean hasImageBearingSubfolders(File root, List<File> files) {
@@ -236,10 +317,15 @@ public final class MetadataTable {
     }
 
     private static char mostCommonSeparator(List<File> files) {
+        List<String> values = new ArrayList<String>();
+        for (File file : files) values.add(basenameWithoutExtension(file));
+        return mostCommonSeparatorInValues(values);
+    }
+
+    private static char mostCommonSeparatorInValues(List<String> values) {
         char[] candidates = new char[] { '_', '-', '.', ' ' };
         int[] counts = new int[candidates.length];
-        for (File file : files) {
-            String name = basenameWithoutExtension(file);
+        for (String name : values) {
             for (int c = 0; c < candidates.length; c++) {
                 for (int i = 0; i < name.length(); i++) {
                     if (name.charAt(i) == candidates[c]) counts[c]++;

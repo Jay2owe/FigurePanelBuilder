@@ -10,6 +10,7 @@ package fpb.record;
 
 import fpb.figure.CalibrationCheck;
 import fpb.figure.PanelRecord;
+import fpb.figure.ScaleBar;
 import fpb.render.DisplayRange;
 import fpb.stats.SelectionRecord;
 import fpb.util.CsvSupport;
@@ -47,6 +48,7 @@ public final class MethodsWriter {
             PrintWriter out = CsvSupport.newWriter(temp);
             try {
                 writeRecord(out, record == null ? Record.builder().build() : record);
+                CsvSupport.requireNoError(out, temp);
             } finally {
                 out.close();
             }
@@ -61,13 +63,14 @@ public final class MethodsWriter {
     private static void writeRecord(PrintWriter out, Record record) {
         PixelSummary pixel = pixelSummary(record.panels);
         String version = ManifestWriter.text(record.pluginVersion);
-        String scaleBar = scaleBarText(record.scaleBarUm);
+        ScaleBarSummary scaleBar = scaleBarSummary(record);
         out.println("FIGURE PANEL BUILDER - RECORD");
         out.println("Generated: " + timestamp(record.clock)
                 + "          Plugin version: " + version);
         out.println();
         out.println("Pixel size:            " + pixel.fieldText());
-        out.println("Scale bar:             " + scaleBar);
+        out.println("Scale bar:             " + scaleBar.fieldText);
+        out.println("Z handling:            " + ManifestWriter.text(record.zMode));
         out.println("Channels:              " + channelsText(record.channelRanges));
         for (ChannelRange range : record.channelRanges) {
             out.println("Display range " + ManifestWriter.text(range.channelName)
@@ -77,7 +80,11 @@ public final class MethodsWriter {
         }
         out.println("Contrast method:       fixed values, set once per channel; no per-image adjustment");
         out.println("Selection statistic:   " + ManifestWriter.text(record.statisticName));
-        out.println("Aggregation unit:      subject (sections averaged before ranking)");
+        out.println("Selection method:      " + ManifestWriter.text(record.selectionMethod));
+        out.println("Aggregation unit:      " + ManifestWriter.text(record.grouping));
+        if (!"none".equalsIgnoreCase(clean(record.selectionMethod))) {
+            out.println("Group comparison:      section values in one per-channel z-normalized chart; coloured group means and overall zero mean");
+        }
         out.println("Groups:                " + groupsText(record));
         out.println("Panels shown:          " + panelsShownText(record));
         out.println();
@@ -87,24 +94,38 @@ public final class MethodsWriter {
     }
 
     private static String methodsParagraph(Record record, PixelSummary pixel,
-            String version, String scaleBar) {
+            String version, ScaleBarSummary scaleBar) {
         StringBuilder sb = new StringBuilder();
-        sb.append("Representative images were selected using Figure Panel Builder (v")
-                .append(version).append("). ");
+        if ("none".equalsIgnoreCase(clean(record.selectionMethod))) {
+            sb.append("Images were arranged using the Figure Panel Builder Quick Grid route (v")
+                    .append(version).append("). No representative-image selection or ")
+                    .append("subject-level ranking was performed. ");
+        } else {
+            sb.append("Representative images were selected using Figure Panel Builder (v")
+                    .append(version).append("). ");
+        }
+        sb.append("Z planes were handled using the ")
+                .append(ManifestWriter.text(record.zMode)).append(" policy. ");
         sb.append("Display ranges were set once per channel and applied identically ");
         sb.append("to all images in the experiment");
         String rangeList = rangeList(record.channelRanges);
         if (!rangeList.isEmpty()) sb.append(" (").append(rangeList).append(")");
         sb.append(". ");
-        sb.append("The selection statistic was ")
-                .append(ManifestWriter.text(record.statisticName))
-                .append(", aggregated by subject before ranking. ");
-        sb.append("Pixel size was ").append(pixel.paragraphText()).append("; ");
-        if ("not available".equals(scaleBar)) {
-            sb.append("scale bar length was not available.");
-        } else {
-            sb.append("scale bars represent ").append(scaleBar).append(".");
+        if (!"none".equalsIgnoreCase(clean(record.selectionMethod))) {
+            sb.append("The selection statistic was ")
+                    .append(ManifestWriter.text(record.statisticName))
+                    .append(", aggregated by ")
+                    .append(ManifestWriter.text(record.grouping))
+                    .append(" before ranking. ");
+            sb.append("Section-level values were compared across groups in one plot ")
+                    .append("with channels on the x-axis after independent z-score ")
+                    .append("normalization within each channel. Dots represented sections, ")
+                    .append("coloured bars represented group means, and the dashed overall ")
+                    .append("mean was zero; raw section-level group means and sample standard ")
+                    .append("deviations were also reported. ");
         }
+        sb.append("Pixel size was ").append(pixel.paragraphText()).append("; ");
+        sb.append(scaleBar.paragraphText);
         return sb.toString();
     }
 
@@ -114,12 +135,62 @@ public final class MethodsWriter {
                 ZonedDateTime.now(safeClock));
     }
 
-    private static String scaleBarText(Double scaleBarUm) {
-        if (scaleBarUm == null || !Double.isFinite(scaleBarUm.doubleValue())
-                || scaleBarUm.doubleValue() <= 0.0) {
-            return "not available";
+    private static ScaleBarSummary scaleBarSummary(Record record) {
+        if (!record.scaleBarEnabled) {
+            return new ScaleBarSummary("disabled", "scale bars were disabled.");
         }
-        return trim(scaleBarUm.doubleValue()) + " um";
+        if (!record.scaleBarRequested) {
+            return new ScaleBarSummary("not drawn (annotations disabled)",
+                    "scale bars were not drawn because annotation output was disabled.");
+        }
+        String length = lengthText(record.scaleBarUm);
+        if ("not available".equals(length)) {
+            return new ScaleBarSummary("not available",
+                    "scale bar length was not available.");
+        }
+        int calibrated = 0;
+        int unavailable = 0;
+        for (PanelRecord panel : record.panels) {
+            if (panel == null) continue;
+            if (panel.calibration().isAvailable()) calibrated++;
+            else unavailable++;
+        }
+        if (calibrated == 0) {
+            return new ScaleBarSummary("not drawn (calibration unavailable)",
+                    "scale bars were not drawn because calibration was unavailable.");
+        }
+        if (!record.scaleBarRendered) {
+            return new ScaleBarSummary("not drawn (did not fit output)",
+                    "scale bars were requested but did not fit the rendered output.");
+        }
+        if (record.scaleBarDidNotFit && unavailable > 0) {
+            return new ScaleBarSummary(length + " (drawn where calibrated and fitting)",
+                    "scale bars represent " + length
+                    + " where calibration was available and the requested bar fit; "
+                    + "see the export summary for omissions.");
+        }
+        if (record.scaleBarDidNotFit) {
+            return new ScaleBarSummary(length + " (drawn where fitting)",
+                    "scale bars represent " + length
+                    + " on panels where the requested bar fit; see the export summary for omissions.");
+        }
+        if (unavailable > 0) {
+            return new ScaleBarSummary(length + " (calibrated panels only)",
+                    "scale bars represent " + length
+                    + " on calibrated panels only; see the manifest for omissions.");
+        }
+        return new ScaleBarSummary(length + " (drawn)",
+                "scale bars represent " + length + ".");
+    }
+
+    private static String lengthText(Double scaleBarUm) {
+        if (scaleBarUm == null || !Double.isFinite(scaleBarUm.doubleValue())
+                || scaleBarUm.doubleValue() <= 0.0) return "not available";
+        return ScaleBar.formatLengthUm(scaleBarUm.doubleValue()) + " um";
+    }
+
+    private static String clean(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private static String channelsText(List<ChannelRange> ranges) {
@@ -318,6 +389,13 @@ public final class MethodsWriter {
         private final Map<String, String> chosenSubjects;
         private final String statisticName;
         private final Double scaleBarUm;
+        private final boolean scaleBarEnabled;
+        private final boolean scaleBarRequested;
+        private final boolean scaleBarRendered;
+        private final boolean scaleBarDidNotFit;
+        private final String selectionMethod;
+        private final String grouping;
+        private final String zMode;
         private final String pluginVersion;
         private final Clock clock;
 
@@ -329,6 +407,15 @@ public final class MethodsWriter {
                     new LinkedHashMap<String, String>(builder.chosenSubjects));
             this.statisticName = builder.statisticName;
             this.scaleBarUm = builder.scaleBarUm;
+            this.scaleBarEnabled = builder.scaleBarEnabled;
+            this.scaleBarRequested = builder.scaleBarRequested == null
+                    ? builder.scaleBarRendered
+                    : builder.scaleBarRequested.booleanValue();
+            this.scaleBarRendered = builder.scaleBarRendered;
+            this.scaleBarDidNotFit = builder.scaleBarDidNotFit;
+            this.selectionMethod = builder.selectionMethod;
+            this.grouping = builder.grouping;
+            this.zMode = builder.zMode;
             this.pluginVersion = builder.pluginVersion == null
                     ? MethodsWriter.pluginVersion() : builder.pluginVersion;
             this.clock = builder.clock == null ? Clock.systemDefaultZone() : builder.clock;
@@ -352,6 +439,13 @@ public final class MethodsWriter {
                 Collections.emptyMap();
         private String statisticName;
         private Double scaleBarUm;
+        private boolean scaleBarEnabled;
+        private Boolean scaleBarRequested;
+        private boolean scaleBarRendered;
+        private boolean scaleBarDidNotFit;
+        private String selectionMethod;
+        private String grouping;
+        private String zMode;
         private String pluginVersion;
         private Clock clock;
 
@@ -389,6 +483,41 @@ public final class MethodsWriter {
 
         public Builder scaleBarUm(Double scaleBarUm) {
             this.scaleBarUm = scaleBarUm;
+            return this;
+        }
+
+        public Builder scaleBarEnabled(boolean scaleBarEnabled) {
+            this.scaleBarEnabled = scaleBarEnabled;
+            return this;
+        }
+
+        public Builder scaleBarRequested(boolean scaleBarRequested) {
+            this.scaleBarRequested = Boolean.valueOf(scaleBarRequested);
+            return this;
+        }
+
+        public Builder scaleBarRendered(boolean scaleBarRendered) {
+            this.scaleBarRendered = scaleBarRendered;
+            return this;
+        }
+
+        public Builder scaleBarDidNotFit(boolean scaleBarDidNotFit) {
+            this.scaleBarDidNotFit = scaleBarDidNotFit;
+            return this;
+        }
+
+        public Builder selectionMethod(String selectionMethod) {
+            this.selectionMethod = selectionMethod;
+            return this;
+        }
+
+        public Builder grouping(String grouping) {
+            this.grouping = grouping;
+            return this;
+        }
+
+        public Builder zMode(String zMode) {
+            this.zMode = zMode;
             return this;
         }
 
@@ -437,6 +566,16 @@ public final class MethodsWriter {
 
         String paragraphText() {
             return paragraphText;
+        }
+    }
+
+    private static final class ScaleBarSummary {
+        final String fieldText;
+        final String paragraphText;
+
+        ScaleBarSummary(String fieldText, String paragraphText) {
+            this.fieldText = fieldText;
+            this.paragraphText = paragraphText;
         }
     }
 }

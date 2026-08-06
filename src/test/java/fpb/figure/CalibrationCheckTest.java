@@ -52,4 +52,35 @@ public class CalibrationCheckTest {
         assertFalse(result.isAvailable());
         assertEquals(CalibrationCheck.CalibrationSource.NONE, result.source());
     }
+
+    @Test
+    public void bioFormatsMetadataRetainsItsProvenance() {
+        Calibration calibration = new Calibration();
+        calibration.pixelWidth = 0.25;
+        calibration.pixelHeight = 0.5;
+        calibration.setUnit("micron");
+
+        CalibrationCheck.Result result =
+                CalibrationCheck.fromBioFormatsMetadata(calibration);
+
+        assertTrue(result.isAvailable());
+        assertEquals(CalibrationCheck.CalibrationSource.BIO_FORMATS,
+                result.source());
+    }
+
+    @Test
+    public void userOverrideTakesPrecedenceOverEmbeddedMetadata() {
+        Calibration calibration = new Calibration();
+        calibration.pixelWidth = 2.0;
+        calibration.pixelHeight = 3.0;
+        calibration.setUnit("micron");
+
+        CalibrationCheck.Result result = CalibrationCheck.resolve(calibration,
+                true, new CalibrationOverride(0.25, 0.5));
+
+        assertEquals(CalibrationCheck.CalibrationSource.USER_ENTERED,
+                result.source());
+        assertEquals(0.25, result.pixelWidthUm(), 0.0);
+        assertEquals(0.5, result.pixelHeightUm(), 0.0);
+    }
 }

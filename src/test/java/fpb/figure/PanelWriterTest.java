@@ -8,6 +8,8 @@
  */
 package fpb.figure;
 
+import fpb.util.CancellationCheck;
+
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -74,10 +76,11 @@ public class PanelWriterTest {
     @Test
     public void unavailableCalibrationOmitsBarAndNamesAffectedImage()
             throws Exception {
-        File source = writeSource("uncalibrated.png", Color.BLACK, 80, 60);
-        PanelRecord record = record(source, "Control", "S1", "sec1",
-                "DAPI", 80, 60, Double.NaN,
-                CalibrationCheck.CalibrationSource.NONE);
+        File rendered = writeSource("uncalibrated.png", Color.BLACK, 80, 60);
+        File source = temp.newFile("original-source.tif");
+        PanelRecord record = new PanelRecord(rendered, source, "Control", "S1",
+                "sec1", "original-source.tif", "DAPI", "DAPI", 0, 80, 60,
+                Double.NaN, Double.NaN, CalibrationCheck.CalibrationSource.NONE);
         PanelConfig config = PanelConfig.builder()
                 .cellSizePx(80)
                 .scaleBarLengthUm(10.0)
@@ -89,6 +92,109 @@ public class PanelWriterTest {
         assertTrue(report.hasUnavailableScaleBars());
         assertEquals(1, report.uncalibratedImages().size());
         assertEquals(source.getAbsolutePath(), report.uncalibratedImages().get(0));
+    }
+
+    @Test
+    public void overlongScaleBarIsOmittedInsteadOfShortenedAndMislabeled()
+            throws Exception {
+        File source = writeSource("overlong-bar.png", Color.BLACK, 100, 100);
+        PanelRecord record = record(source, "Control", "S1", "", "DAPI",
+                100, 100, 1.0, CalibrationCheck.CalibrationSource.USER_ENTERED);
+        PanelConfig withBar = PanelConfig.builder()
+                .cellSizePx(100)
+                .channelOrder(Arrays.asList("DAPI"))
+                .scaleBarEnabled(true)
+                .scaleBarLengthUm(500.0)
+                .build();
+        PanelWriter.WriteReport report = new PanelWriter.WriteReport();
+
+        BufferedImage actual = PanelWriter.renderOverviewPanel(
+                Arrays.asList(record), withBar, report);
+        BufferedImage withoutBar = PanelWriter.renderOverviewPanel(
+                Arrays.asList(record), withBar.toBuilder()
+                        .scaleBarEnabled(false).build());
+
+        assertImagesEqual(withoutBar, actual);
+        assertFalse(report.hasDrawnScaleBar());
+        assertEquals(Arrays.asList(source.getAbsolutePath()),
+                report.scaleBarsThatDidNotFit());
+    }
+
+    @Test
+    public void subPixelCalibratedScaleBarIsReportedAsNotFitting()
+            throws Exception {
+        File source = writeSource("sub-pixel-bar.png", Color.BLACK, 100, 100);
+        PanelRecord record = record(source, "Control", "S1", "", "DAPI",
+                100, 100, 1.0, CalibrationCheck.CalibrationSource.USER_ENTERED);
+        PanelConfig withBar = PanelConfig.builder()
+                .cellSizePx(100)
+                .channelOrder(Arrays.asList("DAPI"))
+                .scaleBarEnabled(true)
+                .scaleBarLengthUm(0.4)
+                .build();
+        PanelWriter.WriteReport report = new PanelWriter.WriteReport();
+
+        BufferedImage actual = PanelWriter.renderOverviewPanel(
+                Arrays.asList(record), withBar, report);
+        BufferedImage withoutBar = PanelWriter.renderOverviewPanel(
+                Arrays.asList(record), withBar.toBuilder()
+                        .scaleBarEnabled(false).build());
+
+        assertImagesEqual(withoutBar, actual);
+        assertTrue(report.uncalibratedImages().isEmpty());
+        assertFalse(report.hasDrawnScaleBar());
+        assertEquals(Arrays.asList(source.getAbsolutePath()),
+                report.scaleBarsThatDidNotFit());
+    }
+
+    @Test
+    public void calibratedScaleBarWithCaptionWiderThanImageDoesNotDraw()
+            throws Exception {
+        double lengthUm = 1.23456789012345E-10;
+        File source = writeSource("wide-caption-bar.png", Color.BLACK, 80, 80);
+        PanelRecord record = record(source, "Control", "S1", "", "DAPI",
+                80, 80, lengthUm / 10.0,
+                CalibrationCheck.CalibrationSource.USER_ENTERED);
+        PanelConfig withBar = PanelConfig.builder()
+                .cellSizePx(80)
+                .channelOrder(Arrays.asList("DAPI"))
+                .scaleBarEnabled(true)
+                .scaleBarLengthUm(lengthUm)
+                .build();
+        PanelWriter.WriteReport report = new PanelWriter.WriteReport();
+
+        BufferedImage actual = PanelWriter.renderOverviewPanel(
+                Arrays.asList(record), withBar, report);
+        BufferedImage withoutBar = PanelWriter.renderOverviewPanel(
+                Arrays.asList(record), withBar.toBuilder()
+                        .scaleBarEnabled(false).build());
+
+        assertImagesEqual(withoutBar, actual);
+        assertTrue(report.uncalibratedImages().isEmpty());
+        assertFalse(report.hasDrawnScaleBar());
+        assertEquals(Arrays.asList(source.getAbsolutePath()),
+                report.scaleBarsThatDidNotFit());
+    }
+
+    @Test
+    public void overviewCompositionPollsCancellationBetweenRecords()
+            throws Exception {
+        File source = writeSource("cancel-overview.png", Color.BLACK, 80, 60);
+        PanelRecord record = record(source, "Control", "S1", "", "DAPI",
+                80, 60, 0.5, CalibrationCheck.CalibrationSource.USER_ENTERED);
+        try {
+            PanelWriter.renderOverviewPanel(Arrays.asList(record),
+                    PanelConfig.builder().cellSizePx(80).build(),
+                    new PanelWriter.WriteReport(), 1, new CancellationCheck() {
+                        @Override
+                        public boolean isCancelled() {
+                            return true;
+                        }
+                    });
+            throw new AssertionError("Expected overview cancellation");
+        } catch (IOException expected) {
+            assertEquals("Export cancelled.", expected.getMessage());
+        }
     }
 
     @Test
@@ -111,6 +217,8 @@ public class PanelWriterTest {
         PanelConfig config = PanelConfig.builder()
                 .cellSizePx(80)
                 .scaleBarLengthUm(5.0)
+                .outputDpi(2400)
+                .exportScale(4)
                 .build();
 
         FigureWriter.FigureOutput output = new FigureWriter()
@@ -118,14 +226,29 @@ public class PanelWriterTest {
 
         assertTrue(output.figureDirectory().isDirectory());
         assertTrue(output.panelsDirectory().isDirectory());
-        assertTrue(new File(output.figureDirectory(), "README.txt").isFile());
+        assertTrue(new File(new File(output.figureDirectory(),
+                FigureWriter.SUPPORTING_DIR), "README.txt").isFile());
         assertTrue(output.figurePng().isFile());
         assertTrue(output.figureTif().isFile());
+        File[] individual = output.panelsDirectory().listFiles();
+        assertTrue(individual != null);
+        assertEquals(2, individual.length);
+        boolean sawPng = false;
+        boolean sawTif = false;
+        for (File file : individual) {
+            sawPng |= file.getName().endsWith(".png");
+            sawTif |= file.getName().endsWith(".tif");
+            BufferedImage panel = ImageIO.read(file);
+            assertEquals(32, panel.getWidth());
+            assertEquals(24, panel.getHeight());
+        }
+        assertTrue(sawPng);
+        assertTrue(sawTif);
         assertTrue(output.uncalibratedImages().isEmpty());
     }
 
     @Test
-    public void exportScaleDoublesFigureDimensions() throws Exception {
+    public void exportScaleRendersDirectHighResolutionLayout() throws Exception {
         File source = writeSource("scaled-source.png", Color.BLUE, 32, 24);
         PanelRecord record = record(source, "Control", "S1", "sec1",
                 "DAPI", 32, 24, 0.5,
@@ -147,6 +270,38 @@ public class PanelWriterTest {
         BufferedImage scaledImage = ImageIO.read(scaled.figurePng());
         assertEquals(normalImage.getWidth() * 2, scaledImage.getWidth());
         assertEquals(normalImage.getHeight() * 2, scaledImage.getHeight());
+
+        BufferedImage directTwoX = PanelWriter.renderOverviewPanel(
+                Arrays.asList(record), twoX, new PanelWriter.WriteReport(), 2);
+        assertImagesEqual(directTwoX, scaledImage);
+    }
+
+    @Test
+    public void overviewAnnotatesWhenIndividualAnnotationIsEnabledButNotWritten()
+            throws Exception {
+        File source = writeSource("annotation-fallback.png", Color.BLACK, 100, 60);
+        PanelRecord record = record(source, "Control", "S1", "sec1",
+                "DAPI", 100, 60, 0.5,
+                CalibrationCheck.CalibrationSource.USER_ENTERED);
+        PanelConfig annotated = PanelConfig.builder()
+                .cellSizePx(100)
+                .channelOrder(Arrays.asList("DAPI"))
+                .annotateOverviewPanel(true)
+                .annotateIndividualPanels(true)
+                .scaleBarEnabled(false)
+                .build();
+        PanelConfig plain = annotated.toBuilder()
+                .annotateIndividualPanels(false)
+                .annotateOverviewPanel(false)
+                .build();
+
+        BufferedImage withAnnotation = PanelWriter.renderOverviewPanel(
+                Arrays.asList(record), annotated);
+        BufferedImage withoutAnnotation = PanelWriter.renderOverviewPanel(
+                Arrays.asList(record), plain);
+
+        assertTrue("overview annotation should be drawn from the unannotated source",
+                differingPixels(withAnnotation, withoutAnnotation) > 0);
     }
 
     private File writeSource(String name, Color color, int width, int height)
@@ -167,6 +322,25 @@ public class PanelWriterTest {
             g.dispose();
         }
         return image;
+    }
+
+    private static void assertImagesEqual(BufferedImage expected,
+            BufferedImage actual) {
+        assertEquals(expected.getWidth(), actual.getWidth());
+        assertEquals(expected.getHeight(), actual.getHeight());
+        assertEquals(0, differingPixels(expected, actual));
+    }
+
+    private static int differingPixels(BufferedImage left, BufferedImage right) {
+        assertEquals(left.getWidth(), right.getWidth());
+        assertEquals(left.getHeight(), right.getHeight());
+        int differences = 0;
+        for (int y = 0; y < left.getHeight(); y++) {
+            for (int x = 0; x < left.getWidth(); x++) {
+                if (left.getRGB(x, y) != right.getRGB(x, y)) differences++;
+            }
+        }
+        return differences;
     }
 
     private static PanelRecord record(File file, String group, String subject,

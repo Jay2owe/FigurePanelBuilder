@@ -9,9 +9,11 @@
 package fpb.stats;
 
 import fpb.io.ImageLoader;
+import fpb.io.HistogramCache;
 import fpb.io.ProgressCallback;
 import fpb.meta.MetadataRow;
 import fpb.meta.MetadataTable;
+import fpb.meta.MetadataTableIO;
 import fpb.meta.TokenStrategy;
 
 import org.junit.Rule;
@@ -20,6 +22,8 @@ import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -153,6 +157,78 @@ public class SuggestionTest {
     }
 
     @Test
+    public void statisticCsvRequiresAnExactOneToOneJoinBeforeRanking()
+            throws Exception {
+        MetadataTable table = basicTable();
+        File csv = temp.newFile("duplicate-partial-stats.csv");
+        PrintWriter out = new PrintWriter(csv);
+        try {
+            out.println("File,MeanIntensity");
+            out.println("Control_S1.tif,12.5");
+            out.println("Control_S1.tif,99.0");
+            out.println("unknown.tif,44.0");
+        } finally {
+            out.close();
+        }
+
+        StatCsvLoader.LoadResult result =
+                StatCsvLoader.load(csv, "MeanIntensity", table);
+
+        assertFalse(result.isComplete());
+        assertEquals(Arrays.asList("Control_S1.tif"), result.duplicateFiles());
+        assertEquals(Arrays.asList("unknown.tif"), result.unmatchedFiles());
+        assertEquals(23, result.uncoveredFiles().size());
+        try {
+            result.imageValues();
+            assertTrue("Incomplete statistic joins must not produce rankable values", false);
+        } catch (IllegalStateException expected) {
+            assertTrue(expected.getMessage().contains("incomplete"));
+        }
+    }
+
+    @Test
+    public void importedStatisticIsBomTolerantAndChannelIndependent()
+            throws Exception {
+        MetadataTable table = fourSubjectTable();
+        File csv = temp.newFile("bom-complete-stats.csv");
+        StringBuilder text = new StringBuilder("\uFEFF\"File\",MeanIntensity\n");
+        for (int i = 0; i < table.rows().size(); i++) {
+            text.append(table.rows().get(i).file.getName()).append(',')
+                    .append(10 + i).append('\n');
+        }
+        Files.write(csv.toPath(), text.toString().getBytes(StandardCharsets.UTF_8));
+
+        Statistic.ImageValues values = StatCsvLoader.load(
+                csv, "MeanIntensity", table).imageValues();
+
+        assertEquals(Statistic.CHANNEL_INDEPENDENT,
+                values.sourceChannelIndex(0));
+        assertEquals("Channel-independent (MeanIntensity)",
+                values.channelName(0));
+    }
+
+    @Test
+    public void exportedMetadataCsvCanBeExtendedWithStatisticColumn()
+            throws Exception {
+        MetadataTable table = fourSubjectTable();
+        File csv = temp.newFile("metadata-with-statistic.csv");
+        MetadataTableIO.exportCsv(table, csv);
+        List<String> lines = Files.readAllLines(csv.toPath(), StandardCharsets.UTF_8);
+        List<String> extended = new ArrayList<String>();
+        for (int i = 0; i < lines.size(); i++) {
+            extended.add(lines.get(i) + (i == 0
+                    ? ",MeanIntensity" : "," + (10 + i)));
+        }
+        Files.write(csv.toPath(), extended, StandardCharsets.UTF_8);
+
+        StatCsvLoader.LoadResult result = StatCsvLoader.load(
+                csv, "MeanIntensity", table);
+
+        assertTrue(result.isComplete());
+        assertEquals(4, result.valuesByFile().size());
+    }
+
+    @Test
     public void selectionRecordCarriesEvidenceForEverySubjectChannel()
             throws Exception {
         File folder = fixture("sections");
@@ -178,6 +254,51 @@ public class SuggestionTest {
         assertEquals(-0.5, s1Channel1.deviation(), 0.0000001);
         assertEquals(3, s1Channel1.sectionCount());
         assertTrue(s1Channel1.suggested());
+    }
+
+    @Test
+    public void includedChannelSubsetKeepsConfiguredNameAndSourceIndex()
+            throws Exception {
+        File folder = fixture("basic");
+        ImageLoader.LoadResult loaded = new ImageLoader(150, 2)
+                .loadFolder(folder, false, ImageLoader.ZMode.FIRST,
+                        ProgressCallback.NONE);
+        Statistic.ImageValues values = Statistic.brightestOnePercentMeans(
+                loaded.histogramCache(), Arrays.asList(Integer.valueOf(2)),
+                Arrays.asList("Iba1 only"), ImageLoader.ZMode.FIRST);
+        SubjectAggregator.SubjectStats subjects = SubjectAggregator.aggregate(
+                basicTable(), values);
+        GroupStats groups = GroupStats.from(subjects);
+        List<SelectionRecord> records = SelectionRecord.from(subjects, groups,
+                Suggestion.suggest(groups));
+
+        assertEquals(1, values.channelCount());
+        assertEquals(2, values.sourceChannelIndex(0));
+        assertEquals("Iba1 only", values.channelName(0));
+        assertEquals(24, records.size());
+        assertEquals(2, records.get(0).channelIndex());
+        assertEquals("Iba1 only", records.get(0).channelName());
+        assertEquals(Statistic.BRIGHTEST_ONE_PERCENT_FIRST_SLICE_NAME,
+                values.statisticName());
+    }
+
+    @Test
+    public void statisticProvenanceNamesActualProjectionMode() throws Exception {
+        HistogramCache cache = new ImageLoader(150, 1)
+                .loadFolder(fixture("sections"), false, ImageLoader.ZMode.MAX,
+                        ProgressCallback.NONE).histogramCache();
+        List<Integer> channel = Arrays.asList(Integer.valueOf(0));
+        List<String> name = Arrays.asList("Signal");
+
+        Statistic.ImageValues first = Statistic.brightestOnePercentMeans(
+                cache, channel, name, ImageLoader.ZMode.FIRST);
+        Statistic.ImageValues max = Statistic.brightestOnePercentMeans(
+                cache, channel, name, ImageLoader.ZMode.MAX);
+
+        assertEquals(Statistic.BRIGHTEST_ONE_PERCENT_FIRST_SLICE_NAME,
+                first.statisticName());
+        assertEquals(Statistic.BRIGHTEST_ONE_PERCENT_NAME, max.statisticName());
+        assertFalse(first.statisticName().equals(max.statisticName()));
     }
 
     private static SelectionRecord find(List<SelectionRecord> records,

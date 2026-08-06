@@ -24,10 +24,19 @@ public final class CalibrationCheck {
     }
 
     public static Result fromImageMetadata(Calibration calibration) {
+        return fromCalibrationMetadata(calibration, CalibrationSource.IMAGE_METADATA);
+    }
+
+    public static Result fromBioFormatsMetadata(Calibration calibration) {
+        return fromCalibrationMetadata(calibration, CalibrationSource.BIO_FORMATS);
+    }
+
+    private static Result fromCalibrationMetadata(Calibration calibration,
+            CalibrationSource source) {
         if (calibration == null) return none();
         if (!isMicronUnit(calibration.getUnit())) return none();
         return fromPixelSize(calibration.pixelWidth, calibration.pixelHeight,
-                CalibrationSource.IMAGE_METADATA);
+                source);
     }
 
     public static Result bioFormats(double pixelWidthUm, double pixelHeightUm) {
@@ -36,6 +45,17 @@ public final class CalibrationCheck {
 
     public static Result userEntered(double pixelWidthUm, double pixelHeightUm) {
         return fromPixelSize(pixelWidthUm, pixelHeightUm, CalibrationSource.USER_ENTERED);
+    }
+
+    /** Resolves an explicit user override before considering embedded metadata. */
+    public static Result resolve(Calibration calibration, boolean openedWithBioFormats,
+            CalibrationOverride override) {
+        if (override != null) {
+            return userEntered(override.pixelWidthUm(), override.pixelHeightUm());
+        }
+        return openedWithBioFormats
+                ? fromBioFormatsMetadata(calibration)
+                : fromImageMetadata(calibration);
     }
 
     public static Result recomputedPyramid(double level0PixelWidthUm,

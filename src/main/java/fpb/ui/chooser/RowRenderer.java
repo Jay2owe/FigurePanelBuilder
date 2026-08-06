@@ -8,9 +8,13 @@
  */
 package fpb.ui.chooser;
 
+import fpb.render.FPBRenderer;
+
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -50,12 +54,23 @@ public final class RowRenderer extends JPanel
     @Override
     protected void paintComponent(Graphics g) {
         paintedCellCount.incrementAndGet();
+        g.setColor(EMPTY);
+        g.fillRect(0, 0, getWidth(), getHeight());
         if (image == null) {
-            g.setColor(EMPTY);
-            g.fillRect(0, 0, getWidth(), getHeight());
             return;
         }
-        g.drawImage(image, 0, 0, getWidth(), getHeight(), null);
+        if (getWidth() <= 0 || getHeight() <= 0) return;
+        int[] fitted = FPBRenderer.aspectFitDimensions(image.getWidth(),
+                image.getHeight(), getWidth(), getHeight());
+        int drawY = (getHeight() - fitted[1]) / 2;
+        Graphics2D graphics = (Graphics2D) g.create();
+        try {
+            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                    RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            graphics.drawImage(image, 0, drawY, fitted[0], fitted[1], null);
+        } finally {
+            graphics.dispose();
+        }
         if (selected) {
             g.setColor(new Color(213, 94, 0));
             g.drawRect(1, 1, Math.max(0, getWidth() - 3),

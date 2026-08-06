@@ -8,12 +8,15 @@
  */
 package fpb.ui.chooser;
 
+import fpb.figure.ImageOrientation;
 import fpb.io.HistogramCache;
 import fpb.io.PlaneCache;
 import fpb.render.FPBRenderer;
+import fpb.ui.ImageOrientationControls;
 
 import java.awt.BorderLayout;
 import java.awt.Dimension;
+import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
@@ -32,6 +35,10 @@ import javax.swing.SwingUtilities;
 /** One group tab's virtualized subject grid backed by a single-selection JList. */
 public final class PanelGrid extends JPanel {
 
+    public interface OrientationListener {
+        void orientationChanged(RowImage.SubjectRow row);
+    }
+
     private final String group;
     private final List<RowImage.SubjectRow> rows;
     private final DefaultListModel<RowImage.SubjectRow> model;
@@ -39,6 +46,7 @@ public final class PanelGrid extends JPanel {
     private final Map<Integer, BufferedImage> rowImageCache;
     private final RowRenderer renderer;
     private final RowImage.Layout baseLayout;
+    private OrientationListener orientationListener;
 
     public PanelGrid(String group, List<RowImage.SubjectRow> rows,
             RowImage.Layout layout) {
@@ -63,6 +71,11 @@ public final class PanelGrid extends JPanel {
         list.setOpaque(true);
         renderer = new RowRenderer(rowImageCache);
         list.setCellRenderer(renderer);
+        list.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mousePressed(java.awt.event.MouseEvent event) {
+                applyOrientationAt(event.getPoint());
+            }
+        });
 
         JScrollPane scroll = new JScrollPane(list,
                 JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
@@ -92,6 +105,10 @@ public final class PanelGrid extends JPanel {
 
     public RowRenderer renderer() {
         return renderer;
+    }
+
+    public void setOrientationListener(OrientationListener listener) {
+        orientationListener = listener;
     }
 
     public RowImage.Layout layoutForCurrentScale() {
@@ -159,6 +176,41 @@ public final class PanelGrid extends JPanel {
             RenderThread.RenderedRow row = renderedRows.get(i);
             putRowImage(row.rowIndex(), row.image());
         }
+    }
+
+    public void clearRenderedRows() {
+        rowImageCache.clear();
+        list.repaint();
+    }
+
+    int renderedRowCountForTest() {
+        return rowImageCache.size();
+    }
+
+    void applyOrientationForTest(int rowIndex, ImageOrientation.Action action) {
+        if (rowIndex < 0 || rowIndex >= rows.size()) {
+            throw new IllegalArgumentException("rowIndex out of range");
+        }
+        applyOrientation(rowIndex, action);
+    }
+
+    private void applyOrientationAt(Point point) {
+        int rowIndex = list.locationToIndex(point);
+        if (rowIndex < 0) return;
+        Rectangle cell = list.getCellBounds(rowIndex, rowIndex);
+        if (cell == null || !cell.contains(point)) return;
+        Point local = new Point(point.x - cell.x, point.y - cell.y);
+        ImageOrientation.Action action = ImageOrientationControls.actionAt(
+                local, baseLayout.controlsBounds());
+        if (action != null) applyOrientation(rowIndex, action);
+    }
+
+    private void applyOrientation(int rowIndex, ImageOrientation.Action action) {
+        if (action == null) return;
+        RowImage.SubjectRow row = rows.get(rowIndex);
+        row.applyOrientation(action);
+        repaintRow(rowIndex);
+        if (orientationListener != null) orientationListener.orientationChanged(row);
     }
 
     private void repaintRow(int rowIndex) {

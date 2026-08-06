@@ -9,6 +9,7 @@
 package fpb;
 
 import fpb.figure.PanelConfig;
+import fpb.figure.PanelConfigCodec;
 import fpb.render.ChannelColour;
 import fpb.render.DisplayRange;
 
@@ -43,8 +44,13 @@ public final class FPBMacroOptionsParser {
                 applyFlag(options, token.toLowerCase(Locale.ROOT));
             }
         }
+        if (options.quickGrid() && pending.hasValues()) {
+            throw new IllegalArgumentException("Quick Grid detects channels and derives "
+                    + "pooled cohort ranges automatically; do not supply channel options.");
+        }
+        if (seenKeys.contains("macro_schema")) pending.validateCardinality();
         options.setChannels(pending.channels, pending.names, pending.colours);
-        ranges.apply(options);
+        ranges.apply(options, pending.names);
         options.validate();
         return options;
     }
@@ -85,36 +91,88 @@ public final class FPBMacroOptionsParser {
     private static void applyKeyValue(FPBMacroOptions options,
             PendingChannels pending, RangeAccumulator ranges,
             String key, String value) {
-        if ("folder".equals(key)) options.setFolder(new File(value));
-        else if ("recursive".equals(key)) options.setRecursive(parseBoolean(value));
+        if ("macro_schema".equals(key)) {
+            if (parseInt(key, value) != 2) {
+                throw new IllegalArgumentException("Unsupported macro_schema: " + value);
+            }
+        }
+        else if ("folder".equals(key)) options.setFolder(new File(value));
+        else if ("folder_b64".equals(key)) {
+            options.setFolder(new File(MacroDataCodec.decodeString(value)));
+        }
+        else if ("recursive".equals(key)) options.setRecursive(parseBoolean(key, value));
         else if ("metadata_csv".equals(key)) options.setMetadataCsv(new File(value));
+        else if ("metadata_csv_b64".equals(key)) {
+            options.setMetadataCsv(new File(MacroDataCodec.decodeString(value)));
+        }
         else if ("group_from".equals(key)) applyGroupFrom(options, value);
         else if ("separator".equals(key)) options.setSeparator(parseSeparator(value));
+        else if ("separator_b64".equals(key)) {
+            options.setSeparator(parseSeparator(MacroDataCodec.decodeString(value)));
+        }
         else if ("group_token".equals(key)) options.setGroupToken(parseInt(key, value));
         else if ("subject_token".equals(key)) options.setSubjectToken(parseInt(key, value));
         else if ("section_token".equals(key)) options.setSectionToken(parseInt(key, value));
         else if ("group_regex".equals(key)) options.setGroupRegex(value);
+        else if ("group_regex_b64".equals(key)) {
+            options.setGroupRegex(MacroDataCodec.decodeString(value));
+        }
         else if ("group_capture".equals(key)) options.setGroupCapture(parseInt(key, value));
         else if ("subject_capture".equals(key)) options.setSubjectCapture(parseInt(key, value));
         else if ("section_capture".equals(key)) options.setSectionCapture(parseInt(key, value));
         else if ("channels".equals(key)) pending.channels = parseIntegers(value);
         else if ("channel_names".equals(key)) pending.names = parseStrings(value);
+        else if ("channel_names_b64".equals(key)) {
+            pending.names = MacroDataCodec.decodeStrings(value);
+        }
         else if ("channel_luts".equals(key)) pending.colours = parseColours(value);
         else if ("z_mode".equals(key)) options.setZMode(value);
         else if ("statistic".equals(key)) options.setStatistic(value);
         else if ("statistic_csv".equals(key)) options.setStatisticCsv(new File(value));
+        else if ("statistic_csv_b64".equals(key)) {
+            options.setStatisticCsv(new File(MacroDataCodec.decodeString(value)));
+        }
         else if ("statistic_column".equals(key)) options.setStatisticColumn(value);
+        else if ("statistic_column_b64".equals(key)) {
+            options.setStatisticColumn(MacroDataCodec.decodeString(value));
+        }
         else if ("scale_bar_um".equals(key)) options.setScaleBarUm(parseDouble(key, value));
         else if ("scale_bar_corner".equals(key)) options.setScaleBarCorner(parseCorner(value));
         else if ("dpi".equals(key)) options.setDpi(parseInt(key, value));
         else if ("export_scale".equals(key)) options.setExportScale(parseInt(key, value));
         else if ("formats".equals(key)) options.setFormats(parseStrings(value));
         else if ("output".equals(key)) options.setOutput(new File(value));
+        else if ("output_b64".equals(key)) {
+            options.setOutput(new File(MacroDataCodec.decodeString(value)));
+        }
         else if ("figure_name".equals(key)) options.setFigureName(value);
+        else if ("figure_name_b64".equals(key)) {
+            options.setFigureName(MacroDataCodec.decodeString(value));
+        }
+        else if ("panel_config".equals(key)) {
+            options.setPanelConfig(PanelConfigCodec.decode(value));
+        }
+        else if ("picks_b64".equals(key)) {
+            for (java.util.Map.Entry<String, String> entry
+                    : MacroDataCodec.decodeMap(value).entrySet()) {
+                options.putPick(entry.getKey(), entry.getValue());
+            }
+        }
+        else if ("pick_images_b64".equals(key)) {
+            for (java.util.Map.Entry<String, String> entry
+                    : MacroDataCodec.decodeMap(value).entrySet()) {
+                options.putPickImage(entry.getKey(), entry.getValue());
+            }
+        }
+        else if ("calibrations_b64".equals(key)) {
+            options.putEncodedCalibrations(MacroDataCodec.decodeMap(value));
+        }
         else if (key.startsWith("range_") && key.endsWith("_min")) {
             ranges.putMin(key.substring(6, key.length() - 4), parseInt(key, value));
         } else if (key.startsWith("range_") && key.endsWith("_max")) {
             ranges.putMax(key.substring(6, key.length() - 4), parseInt(key, value));
+        } else if (key.startsWith("pick_image_")) {
+            options.putPickImage(key.substring(11), value);
         } else if (key.startsWith("pick_")) {
             options.putPick(key.substring(5), value);
         } else {
@@ -126,6 +184,12 @@ public final class FPBMacroOptionsParser {
         if ("recursive".equals(flag)) options.setRecursive(true);
         else if ("no_recursive".equals(flag) || "flat".equals(flag)) options.setRecursive(false);
         else if ("hide_display".equals(flag) || "no_display".equals(flag)) options.setHideDisplay(true);
+        else if ("quick_grid".equals(flag)) options.setQuickGrid(true);
+        else if ("export_all_png".equals(flag)) {
+            options.setWriteAllProjectPng(true);
+        } else if ("export_all_tiff_stacks".equals(flag)) {
+            options.setWriteAllProjectTiffStacks(true);
+        }
         else if ("hide_panels".equals(flag)) {
             options.setWritePanels(false);
         } else if ("hide_records".equals(flag)) {
@@ -203,9 +267,16 @@ public final class FPBMacroOptionsParser {
         }
     }
 
-    private static boolean parseBoolean(String value) {
-        String clean = value.toLowerCase(Locale.ROOT);
-        return "true".equals(clean) || "1".equals(clean) || "yes".equals(clean);
+    private static boolean parseBoolean(String key, String value) {
+        String clean = value.trim().toLowerCase(Locale.ROOT);
+        if ("true".equals(clean) || "1".equals(clean) || "yes".equals(clean)) {
+            return true;
+        }
+        if ("false".equals(clean) || "0".equals(clean) || "no".equals(clean)) {
+            return false;
+        }
+        throw new IllegalArgumentException(key
+                + " must be true/false, yes/no, or 1/0.");
     }
 
     private static char parseSeparator(String value) {
@@ -228,6 +299,17 @@ public final class FPBMacroOptionsParser {
         List<Integer> channels = new ArrayList<Integer>();
         List<String> names = new ArrayList<String>();
         List<ChannelColour> colours = new ArrayList<ChannelColour>();
+
+        boolean hasValues() {
+            return !channels.isEmpty() || !names.isEmpty() || !colours.isEmpty();
+        }
+
+        void validateCardinality() {
+            if (channels.size() != names.size() || channels.size() != colours.size()) {
+                throw new IllegalArgumentException(
+                        "channels, channel_names and channel_luts must match in schema 2.");
+            }
+        }
     }
 
     private static final class RangeAccumulator {
@@ -239,12 +321,12 @@ public final class FPBMacroOptionsParser {
         void putMin(String name, int value) { min.put(name, Integer.valueOf(value)); }
         void putMax(String name, int value) { max.put(name, Integer.valueOf(value)); }
 
-        void apply(FPBMacroOptions options) {
+        void apply(FPBMacroOptions options, List<String> channelNames) {
             for (String name : min.keySet()) {
                 Integer hi = max.get(name);
                 if (hi != null) {
-                    options.putRange(name, new DisplayRange(min.get(name).intValue(),
-                            hi.intValue()));
+                    options.putRange(resolveName(name, channelNames),
+                            new DisplayRange(min.get(name).intValue(), hi.intValue()));
                 }
             }
             for (String name : max.keySet()) {
@@ -256,6 +338,30 @@ public final class FPBMacroOptionsParser {
                 if (!max.containsKey(name)) {
                     throw new IllegalArgumentException("range_" + name + "_max is required.");
                 }
+            }
+        }
+
+        private String resolveName(String key, List<String> channelNames) {
+            try {
+                int index = Integer.parseInt(key) - 1;
+                if (index < 0 || index >= channelNames.size()) {
+                    throw new IllegalArgumentException("range_" + key
+                            + " does not identify a configured channel.");
+                }
+                return channelNames.get(index);
+            } catch (NumberFormatException legacy) {
+                String match = null;
+                for (String channelName : channelNames) {
+                    if (!FPBMacroOptions.optionSuffix(channelName).equals(key)) continue;
+                    if (match != null) {
+                        throw new IllegalArgumentException("Legacy range key collision: " + key);
+                    }
+                    match = channelName;
+                }
+                if (match == null) {
+                    throw new IllegalArgumentException("Range has no matching channel: " + key);
+                }
+                return match;
             }
         }
     }

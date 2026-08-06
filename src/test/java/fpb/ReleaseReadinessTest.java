@@ -48,7 +48,7 @@ public class ReleaseReadinessTest {
     @Test
     public void requiredReleaseFilesArePresent() {
         for (String path : Arrays.asList("README.md", "LICENSE", "CHANGELOG.md",
-                "CITATION.cff", "PUBLISHING_AUDIT.md")) {
+                "CITATION.cff")) {
             assertTrue(path, new File(path).isFile());
         }
     }

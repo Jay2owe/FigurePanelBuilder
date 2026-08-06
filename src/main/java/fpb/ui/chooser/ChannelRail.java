@@ -106,11 +106,26 @@ public final class ChannelRail extends JPanel {
     }
 
     public List<FPBRenderer.ChannelRequest> channelRequests() {
+        commitPendingFieldEdits();
         List<FPBRenderer.ChannelRequest> requests =
                 new ArrayList<FPBRenderer.ChannelRequest>(states.size());
         for (ChannelState state : states) {
             requests.add(new FPBRenderer.ChannelRequest(state.spec.channelIndex(),
                     state.spec.name(), state.spec.colour(), state.lockedRange));
+        }
+        return Collections.unmodifiableList(requests);
+    }
+
+    /** Valid ranges for immediate previews, using proposals until explicitly locked. */
+    public List<FPBRenderer.ChannelRequest> previewChannelRequests() {
+        List<FPBRenderer.ChannelRequest> requests =
+                new ArrayList<FPBRenderer.ChannelRequest>(states.size());
+        for (ChannelState state : states) {
+            DisplayRange range = state.lockedRange == null
+                    ? new DisplayRange(state.proposedMin, state.proposedMax)
+                    : state.lockedRange;
+            requests.add(new FPBRenderer.ChannelRequest(state.spec.channelIndex(),
+                    state.spec.name(), state.spec.colour(), range));
         }
         return Collections.unmodifiableList(requests);
     }
@@ -198,6 +213,21 @@ public final class ChannelRail extends JPanel {
         }
     }
 
+    void setRangeFieldTextForTest(int channelIndex, String min, String max) {
+        for (ChannelBlock block : blocks) {
+            if (block.state.spec.channelIndex() == channelIndex) {
+                block.minField.setText(min);
+                block.maxField.setText(max);
+                return;
+            }
+        }
+        throw new IllegalArgumentException("Unknown channel index " + channelIndex);
+    }
+
+    void commitPendingFieldEdits() {
+        for (ChannelBlock block : blocks) block.commitFields(false);
+    }
+
     private static final class ChannelState {
         final ChannelSpec spec;
         final HistogramCache.Histogram histogram;
@@ -217,6 +247,7 @@ public final class ChannelRail extends JPanel {
             this.domainMax = last > first ? last : first + 1;
             this.proposedMin = domainMin;
             this.proposedMax = domainMax;
+            this.lockedRange = new DisplayRange(proposedMin, proposedMax);
         }
 
         private static int firstNonEmpty(HistogramCache.Histogram histogram) {
@@ -290,21 +321,15 @@ public final class ChannelRail extends JPanel {
             bottom.add(minField);
             bottom.add(new JLabel("-"));
             bottom.add(maxField);
-            JButton suggest = new JButton("Suggest from cohort");
+            JButton suggest = new JButton("Auto");
+            suggest.setToolTipText("Set this channel range from the cohort histogram");
             suggest.addActionListener(new java.awt.event.ActionListener() {
                 @Override public void actionPerformed(java.awt.event.ActionEvent event) {
                     setProposed(lowerPercentile(ChannelBlock.this.state.histogram),
                             upperPercentile(ChannelBlock.this.state.histogram), false);
                 }
             });
-            JButton set = new JButton("Set");
-            set.addActionListener(new java.awt.event.ActionListener() {
-                @Override public void actionPerformed(java.awt.event.ActionEvent event) {
-                    lockCurrentProposal();
-                }
-            });
             bottom.add(suggest);
-            bottom.add(set);
             lower.add(bottom, BorderLayout.SOUTH);
             add(lower, BorderLayout.SOUTH);
 
@@ -330,6 +355,14 @@ public final class ChannelRail extends JPanel {
                     commitFields();
                 }
             });
+            java.awt.event.FocusAdapter commitOnFocusLost =
+                    new java.awt.event.FocusAdapter() {
+                        @Override public void focusLost(java.awt.event.FocusEvent event) {
+                            commitFields();
+                        }
+                    };
+            minField.addFocusListener(commitOnFocusLost);
+            maxField.addFocusListener(commitOnFocusLost);
             addMouseListener(new java.awt.event.MouseAdapter() {
                 @Override public void mousePressed(java.awt.event.MouseEvent event) {
                     updateFocus(blocks.indexOf(ChannelBlock.this));
@@ -343,9 +376,17 @@ public final class ChannelRail extends JPanel {
         }
 
         void setProposed(int min, int max, boolean adjusting) {
+            setProposed(min, max, adjusting, true);
+        }
+
+        private void setProposed(int min, int max, boolean adjusting,
+                boolean notifyListener) {
             int safeMin = clamp(min, state.domainMin, state.domainMax);
             int safeMax = clamp(max, state.domainMin, state.domainMax);
-            if (safeMax <= safeMin) safeMax = Math.min(state.domainMax, safeMin + 1);
+            if (safeMax <= safeMin) {
+                if (safeMin < state.domainMax) safeMax = safeMin + 1;
+                else safeMin = Math.max(state.domainMin, safeMax - 1);
+            }
             state.proposedMin = safeMin;
             state.proposedMax = safeMax;
             updating = true;
@@ -358,10 +399,10 @@ public final class ChannelRail extends JPanel {
             } finally {
                 updating = false;
             }
-            if (state.lockedRange != null) {
-                state.lockedRange = new DisplayRange(safeMin, safeMax);
-                fireRangeChanged(adjusting);
-            }
+            // Every valid value visible in the controls is authoritative. There
+            // is no separate hidden confirmation state for the user to satisfy.
+            state.lockedRange = new DisplayRange(safeMin, safeMax);
+            if (notifyListener) fireRangeChanged(adjusting);
         }
 
         void lockCurrentProposal() {
@@ -374,11 +415,17 @@ public final class ChannelRail extends JPanel {
         }
 
         private void commitFields() {
+            commitFields(true);
+        }
+
+        private void commitFields(boolean notifyListener) {
             try {
                 setProposed(Integer.parseInt(minField.getText().trim()),
-                        Integer.parseInt(maxField.getText().trim()), false);
+                        Integer.parseInt(maxField.getText().trim()), false,
+                        notifyListener);
             } catch (NumberFormatException invalid) {
-                setProposed(state.proposedMin, state.proposedMax, false);
+                setProposed(state.proposedMin, state.proposedMax, false,
+                        notifyListener);
             }
         }
 

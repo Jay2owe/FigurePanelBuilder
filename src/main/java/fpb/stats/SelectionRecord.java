@@ -66,7 +66,8 @@ public final class SelectionRecord {
                     double rawDeviation = Double.isFinite(v) && Double.isFinite(mean)
                             ? v - mean : Double.NaN;
                     double deviation = groupStats.normalizedDeviation(group, subject, channel);
-                    records.add(new SelectionRecord(group, subject, channel,
+                    records.add(new SelectionRecord(group, subject,
+                            subjectStats.sourceChannelIndex(channel),
                             subjectStats.channelName(channel), v, mean, rawDeviation,
                             deviation, subjectStats.sectionCount(group, subject, channel),
                             suggested));

@@ -10,6 +10,7 @@ package fpb.io;
 
 import org.junit.Test;
 
+import java.awt.image.BufferedImage;
 import java.io.File;
 
 import static org.junit.Assert.assertEquals;
@@ -42,6 +43,21 @@ public class BinnerTest {
         };
         short[] binned = Binner.maxBin(source, 2, 2, 1, 1);
         assertEquals(65000, binned[0] & 0xFFFF);
+    }
+
+    @Test
+    public void renderedImageMaxBinPreservesSparseColourPeaksWithoutAveraging() {
+        BufferedImage source = new BufferedImage(4, 4,
+                BufferedImage.TYPE_INT_ARGB);
+        source.setRGB(1, 1, 0xFFFF0000);
+        source.setRGB(3, 3, 0xFF00FF00);
+
+        BufferedImage binned = Binner.maxBin(source, 2, 2);
+
+        assertEquals(0xFFFF0000, binned.getRGB(0, 0));
+        assertEquals(0xFF00FF00, binned.getRGB(1, 1));
+        assertEquals(0x00000000, binned.getRGB(1, 0));
+        assertEquals(0x00000000, binned.getRGB(0, 1));
     }
 
     private static int unsignedMax(short[] pixels) {

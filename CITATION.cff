@@ -15,7 +15,8 @@ authors:
 repository-code: "https://github.com/Jay2owe/FigurePanelBuilder"
 url: "https://github.com/Jay2owe/FigurePanelBuilder"
 license: BSD-3-Clause
-version: "0.1.0-SNAPSHOT"
+version: "0.1.0"
+date-released: "2026-08-06"
 keywords:
   - imagej
   - fiji

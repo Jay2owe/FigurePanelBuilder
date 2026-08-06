@@ -62,17 +62,18 @@ public class ManifestWriterTest {
         assertEquals("S\"1", row[1]);
         assertEquals("", row[2]);
         assertEquals("image, \"1\"", row[4]);
-        assertEquals("DAPI, blue", row[6]);
-        assertEquals("Blue, \"warm\"", row[7]);
-        assertEquals(panelFile.getAbsolutePath(), row[8]);
-        assertEquals("bio-formats", row[13]);
-        assertEquals("120", row[14]);
-        assertEquals("4200", row[15]);
-        assertEquals("locked", row[16]);
-        assertEquals("1.25", row[17]);
-        assertEquals("0.5", row[18]);
-        assertEquals("S2", row[23]);
-        assertEquals("S\"1", row[24]);
+        assertEquals("not available", row[5]);
+        assertEquals("DAPI, blue", row[7]);
+        assertEquals("Blue, \"warm\"", row[8]);
+        assertEquals(panelFile.getAbsolutePath(), row[9]);
+        assertEquals("bio-formats", row[14]);
+        assertEquals("120", row[15]);
+        assertEquals("4200", row[16]);
+        assertEquals("locked", row[17]);
+        assertEquals("1.25", row[18]);
+        assertEquals("0.5", row[19]);
+        assertEquals("S2", row[24]);
+        assertEquals("S\"1", row[25]);
         assertEquals(row.length, header.length);
         for (int i = 0; i < row.length; i++) {
             if ("Section".equals(header[i])) continue;
@@ -102,15 +103,15 @@ public class ManifestWriterTest {
         }
 
         assertEquals("not available", row[3]);
-        assertEquals("not available", row[8]);
-        assertEquals("not available", row[11]);
+        assertEquals("not available", row[9]);
         assertEquals("not available", row[12]);
         assertEquals("not available", row[13]);
-        assertEquals("not available", row[17]);
-        assertEquals("not available", row[20]);
-        assertEquals("not available", row[22]);
+        assertEquals("not available", row[14]);
+        assertEquals("not available", row[18]);
+        assertEquals("not available", row[21]);
         assertEquals("not available", row[23]);
         assertEquals("not available", row[24]);
+        assertEquals("not available", row[25]);
     }
 
     @Test
@@ -126,5 +127,31 @@ public class ManifestWriterTest {
         } catch (IllegalStateException expected) {
             assertTrue(expected.getMessage().contains("locked display range"));
         }
+    }
+
+    @Test
+    public void mergeRowsRecordComponentRangesInsteadOfInventingOne()
+            throws Exception {
+        PanelRecord merge = new PanelRecord(null, "Control", "S1", "",
+                "image", "Merge", "Merge", -1, 10, 10, 0.5, 0.5,
+                CalibrationCheck.CalibrationSource.USER_ENTERED);
+        File manifest = temp.newFile("merge-manifest.csv");
+        new ManifestWriter().write(manifest, Arrays.asList(new ManifestWriter.Row(
+                merge, "merge", null, null, null, "component channel ranges",
+                "Mean", Double.NaN, Double.NaN, 1, "S1", "S1",
+                "representative", "metadata", "first")));
+
+        CsvSupport.RecordReader reader = CsvSupport.openRecordReader(manifest);
+        String[] row;
+        try {
+            reader.readRecord();
+            row = CsvSupport.parseRecord(reader.readRecord().text);
+        } finally {
+            reader.close();
+        }
+        assertEquals("first", row[5]);
+        assertEquals("not available", row[15]);
+        assertEquals("not available", row[16]);
+        assertEquals("component channel ranges", row[17]);
     }
 }

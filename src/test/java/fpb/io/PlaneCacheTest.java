@@ -84,6 +84,20 @@ public class PlaneCacheTest {
     }
 
     @Test
+    public void cacheRetainsOriginalDimensionsWhenPreviewIsBinned() throws Exception {
+        ImageLoader.LoadResult result = new ImageLoader(4, 1)
+                .loadFolder(fixture("basic"), false, ProgressCallback.NONE);
+        PlaneCache.ImagePlanes image = result.planeCache().image(0);
+
+        assertTrue(image.sourceWidthPx() > image.plane(0).width());
+        assertTrue(image.sourceHeightPx() > image.plane(0).height());
+        assertEquals(image.sourceWidthPx(),
+                new ImageLoader().loadImage(image.sourceFile()).sourceWidthPx());
+        assertEquals(image.sourceHeightPx(),
+                new ImageLoader().loadImage(image.sourceFile()).sourceHeightPx());
+    }
+
+    @Test
     public void imageCapFailsClosedWithClearMessage() throws Exception {
         List<File> files = new ArrayList<File>();
         File image = fixture("eightbit.tif");

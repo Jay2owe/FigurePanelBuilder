@@ -10,9 +10,11 @@ package fpb.render;
 
 import fpb.io.HistogramCache;
 import fpb.io.PlaneCache;
+import fpb.util.CancellationCheck;
 
 import java.awt.image.BufferedImage;
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -20,8 +22,37 @@ import java.util.List;
 /** Synchronous render entry point for cached planes and locked display ranges. */
 public final class FPBRenderer {
 
+    /** Fits source dimensions inside a box without changing aspect ratio. */
+    public static int[] aspectFitDimensions(int sourceWidth, int sourceHeight,
+            int boundWidth, int boundHeight) {
+        requirePositive("sourceWidth", sourceWidth);
+        requirePositive("sourceHeight", sourceHeight);
+        requirePositive("boundWidth", boundWidth);
+        requirePositive("boundHeight", boundHeight);
+        double scale = Math.min((double) boundWidth / sourceWidth,
+                (double) boundHeight / sourceHeight);
+        return new int[] {
+                Math.max(1, Math.min(boundWidth,
+                        (int) Math.round(sourceWidth * scale))),
+                Math.max(1, Math.min(boundHeight,
+                        (int) Math.round(sourceHeight * scale)))
+        };
+    }
+
     public PanelRender renderPanel(PlaneCache planes, HistogramCache histograms,
             int imageIndex, List<ChannelRequest> channels, int width, int height) {
+        try {
+            return renderPanel(planes, histograms, imageIndex, channels, width,
+                    height, CancellationCheck.NEVER_CANCELLED);
+        } catch (IOException impossible) {
+            throw new IllegalStateException(impossible);
+        }
+    }
+
+    /** Renders one full-resolution panel while polling between pixel blocks. */
+    public PanelRender renderPanel(PlaneCache planes, HistogramCache histograms,
+            int imageIndex, List<ChannelRequest> channels, int width, int height,
+            CancellationCheck cancelCheck) throws IOException {
         if (planes == null) throw new IllegalArgumentException("planes must not be null");
         if (histograms == null) throw new IllegalArgumentException("histograms must not be null");
         if (channels == null || channels.isEmpty()) {
@@ -44,23 +75,32 @@ public final class FPBRenderer {
                 new ArrayList<ClipReport.ChannelClip>(channels.size());
 
         for (int i = 0; i < channels.size(); i++) {
+            checkCancelled(cancelCheck);
             ChannelRequest request = channels.get(i);
             if (request == null) throw new IllegalArgumentException("channel request is null");
             DisplayRange range = DisplayRange.requireValid(request.range(),
                     request.name(), imageName);
             PlaneCache.Plane plane = image.plane(request.channelIndex());
             FastRaster.GreyPlane grey = FastRaster.greyPlane(plane.pixelsUnsafe(),
-                    plane.width(), plane.height(), range, width, height);
+                    plane.width(), plane.height(), range, width, height, cancelCheck);
             greyPlanes.add(grey);
             ChannelColour colour = request.colour();
             colours.add(colour);
-            channelImages.add(FastRaster.colourize(grey, colour));
+            channelImages.add(FastRaster.colourize(grey, colour, cancelCheck));
             clips.add(ClipReport.fromHistogram(request.channelIndex(), request.name(),
                     histograms.histogram(imageIndex, request.channelIndex()), range));
         }
 
         return new PanelRender(image.sourceFile(), imageIndex, channelImages,
-                FastRaster.merge(greyPlanes, colours), new ClipReport(clips));
+                FastRaster.merge(greyPlanes, colours, cancelCheck),
+                new ClipReport(clips));
+    }
+
+    private static void checkCancelled(CancellationCheck cancelCheck)
+            throws IOException {
+        if (cancelCheck != null && cancelCheck.isCancelled()) {
+            throw new IOException("Export cancelled.");
+        }
     }
 
     private static void requirePositive(String name, int value) {

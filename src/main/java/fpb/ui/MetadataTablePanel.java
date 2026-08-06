@@ -22,6 +22,12 @@ import javax.swing.table.DefaultTableCellRenderer;
 /** Editable Swing view of the metadata table. */
 public final class MetadataTablePanel extends JScrollPane {
 
+    public enum MetadataField {
+        GROUP,
+        SUBJECT,
+        SECTION
+    }
+
     private final Model model;
     private final JTable table;
     private Runnable editListener;
@@ -29,6 +35,7 @@ public final class MetadataTablePanel extends JScrollPane {
     public MetadataTablePanel() {
         model = new Model();
         table = new JTable(model);
+        table.putClientProperty("terminateEditOnFocusLost", Boolean.TRUE);
         table.setFillsViewportHeight(true);
         table.setRowHeight(24);
         table.getColumnModel().getColumn(0).setPreferredWidth(280);
@@ -40,6 +47,9 @@ public final class MetadataTablePanel extends JScrollPane {
     }
 
     public void setMetadataTable(MetadataTable metadataTable) {
+        if (table.isEditing() && table.getCellEditor() != null) {
+            table.getCellEditor().cancelCellEditing();
+        }
         model.setMetadataTable(metadataTable);
     }
 
@@ -53,6 +63,49 @@ public final class MetadataTablePanel extends JScrollPane {
 
     public void setEditListener(Runnable listener) {
         editListener = listener;
+    }
+
+    /** Commits the live editor into the metadata model before validation or I/O. */
+    public boolean commitActiveEdit() {
+        if (!table.isEditing()) return true;
+        javax.swing.table.TableCellEditor editor = table.getCellEditor();
+        return editor == null || editor.stopCellEditing();
+    }
+
+    /** Applies one metadata value to selected rows, or every row when requested. */
+    public int applyBulkValue(MetadataField field, String value, boolean allRows) {
+        if (field == null) throw new IllegalArgumentException("field must not be null");
+        if (!commitActiveEdit() || model.metadataTable == null) return 0;
+        int[] modelRows;
+        if (allRows) {
+            modelRows = new int[model.getRowCount()];
+            for (int i = 0; i < modelRows.length; i++) modelRows[i] = i;
+        } else {
+            int[] selected = table.getSelectedRows();
+            modelRows = new int[selected.length];
+            for (int i = 0; i < selected.length; i++) {
+                modelRows[i] = table.convertRowIndexToModel(selected[i]);
+            }
+        }
+        if (modelRows.length == 0) return 0;
+        String text = value == null ? "" : value;
+        int minimum = Integer.MAX_VALUE;
+        int maximum = -1;
+        for (int modelRow : modelRows) {
+            MetadataRow row = model.metadataTable.rows().get(modelRow);
+            if (field == MetadataField.GROUP) {
+                row.setLabels(text, row.subject, row.section);
+            } else if (field == MetadataField.SUBJECT) {
+                row.setLabels(row.group, text, row.section);
+            } else {
+                row.setLabels(row.group, row.subject, text);
+            }
+            minimum = Math.min(minimum, modelRow);
+            maximum = Math.max(maximum, modelRow);
+        }
+        model.fireTableRowsUpdated(minimum, maximum);
+        if (editListener != null) editListener.run();
+        return modelRows.length;
     }
 
     private final class Model extends AbstractTableModel {
@@ -89,7 +142,7 @@ public final class MetadataTablePanel extends JScrollPane {
         @Override
         public Object getValueAt(int rowIndex, int columnIndex) {
             MetadataRow row = metadataTable.rows().get(rowIndex);
-            if (columnIndex == 0) return row.file.getName();
+            if (columnIndex == 0) return MetadataTable.displayName(row);
             if (columnIndex == 1) return row.group;
             if (columnIndex == 2) return row.subject;
             return row.section;

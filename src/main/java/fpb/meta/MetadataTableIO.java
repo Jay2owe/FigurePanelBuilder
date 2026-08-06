@@ -27,6 +27,10 @@ import java.util.Set;
 /** CSV import/export for the metadata table. */
 public final class MetadataTableIO {
 
+    public static final String VERSION_COLUMN = "FPBMetadataVersion";
+    private static final String VERSION = "3";
+    private static final String LEGACY_REVERSIBLE_VERSION = "2";
+
     private MetadataTableIO() {}
 
     public static void exportCsv(MetadataTable table, File csvFile) throws IOException {
@@ -36,17 +40,26 @@ public final class MetadataTableIO {
         if (parent != null) IoUtils.mustMkdirs(parent);
         Path temp = Files.createTempFile(parent == null ? null : parent.toPath(),
                 "metadata-table-", ".csv.tmp");
-        PrintWriter out = CsvSupport.newWriter(temp.toFile());
+        boolean moved = false;
         try {
-            out.println(CsvSupport.joinRow(Arrays.asList("File", "Group", "Subject", "Section")));
-            for (MetadataRow row : table.rows()) {
-                out.println(CsvSupport.joinRow(Arrays.asList(
-                        table.csvFileName(row), row.group, row.subject, row.section)));
+            PrintWriter out = CsvSupport.newWriter(temp.toFile());
+            try {
+                out.println(CsvSupport.joinRow(Arrays.asList("File", "Group", "Subject",
+                        "Section", VERSION_COLUMN)));
+                for (MetadataRow row : table.rows()) {
+                    out.println(CsvSupport.joinRowProtectingText(Arrays.asList(
+                            table.csvFileName(row), row.group, row.subject, row.section,
+                            VERSION), 0, 1, 2, 3));
+                }
+                CsvSupport.requireNoError(out, temp.toFile());
+            } finally {
+                out.close();
             }
+            IoUtils.commitReplacingSmallFile(temp, csvFile.toPath());
+            moved = true;
         } finally {
-            out.close();
+            if (!moved) Files.deleteIfExists(temp);
         }
-        IoUtils.commitReplacingSmallFile(temp, csvFile.toPath());
     }
 
     public static ImportResult importCsv(MetadataTable table, File csvFile) throws IOException {
@@ -54,34 +67,54 @@ public final class MetadataTableIO {
         if (csvFile == null) throw new IllegalArgumentException("csvFile must not be null");
         Map<String, MetadataRow> byKey = rowLookup(table);
         List<String> unmatched = new ArrayList<String>();
+        List<String> duplicates = new ArrayList<String>();
+        Map<MetadataRow, String[]> pending = new LinkedHashMap<MetadataRow, String[]>();
 
         CsvSupport.RecordReader reader = CsvSupport.openRecordReader(csvFile);
         try {
             CsvSupport.Record headerRecord = nextNonBlank(reader);
             if (headerRecord == null) throw new IOException("Metadata CSV is empty");
-            String[] header = CsvSupport.parseRecord(headerRecord.text);
+            String[] header = CsvSupport.parseRecord(
+                    CsvSupport.stripUtf8Bom(headerRecord.text));
             int fileCol = column(header, "File");
             int groupCol = column(header, "Group");
             int subjectCol = column(header, "Subject");
             int sectionCol = column(header, "Section");
+            int versionCol = optionalColumn(header, VERSION_COLUMN);
 
             CsvSupport.Record record;
             while ((record = reader.readRecord()) != null) {
                 if (CsvSupport.isBlankRecord(record.text)) continue;
                 String[] fields = CsvSupport.parseRecord(record.text);
-                String key = value(fields, fileCol);
+                String version = value(fields, versionCol);
+                String key = replayValue(fields, fileCol, version);
                 MetadataRow row = byKey.get(normalizeKey(key));
                 if (row == null) {
                     unmatched.add(key);
+                } else if (pending.containsKey(row)) {
+                    duplicates.add(key);
                 } else {
-                    row.setLabels(value(fields, groupCol),
-                            value(fields, subjectCol), value(fields, sectionCol));
+                    pending.put(row, new String[] {
+                            replayValue(fields, groupCol, version),
+                            replayValue(fields, subjectCol, version),
+                            replayValue(fields, sectionCol, version) });
                 }
             }
         } finally {
             reader.close();
         }
-        return new ImportResult(unmatched);
+        List<String> uncovered = new ArrayList<String>();
+        for (MetadataRow row : table.rows()) {
+            if (!pending.containsKey(row)) uncovered.add(table.csvFileName(row));
+        }
+        ImportResult result = new ImportResult(unmatched, duplicates, uncovered);
+        if (result.isComplete()) {
+            for (Map.Entry<MetadataRow, String[]> entry : pending.entrySet()) {
+                String[] labels = entry.getValue();
+                entry.getKey().setLabels(labels[0], labels[1], labels[2]);
+            }
+        }
+        return result;
     }
 
     private static CsvSupport.Record nextNonBlank(CsvSupport.RecordReader reader)
@@ -100,8 +133,33 @@ public final class MetadataTableIO {
         throw new IOException("Metadata CSV is missing required column " + name);
     }
 
+    private static int optionalColumn(String[] header, String name) {
+        for (int i = 0; i < header.length; i++) {
+            if (name.equals(MetadataRow.clean(header[i]))) return i;
+        }
+        return -1;
+    }
+
     private static String value(String[] fields, int index) {
-        return index < fields.length ? MetadataRow.clean(fields[index]) : "";
+        return index >= 0 && index < fields.length
+                ? MetadataRow.clean(fields[index]) : "";
+    }
+
+    private static String replayValue(String[] fields, int index,
+            String version) {
+        return restoreVersionedText(value(fields, index), version);
+    }
+
+    /** Restores one field written by a versioned FPB metadata export. */
+    public static String restoreVersionedText(String value, String version) {
+        String clean = MetadataRow.clean(value);
+        if (VERSION.equals(version)) {
+            return MetadataRow.clean(CsvSupport.restoreSpreadsheetText(clean));
+        }
+        if (LEGACY_REVERSIBLE_VERSION.equals(version)) {
+            return MetadataRow.clean(CsvSupport.restoreSpreadsheetSafe(clean));
+        }
+        return clean;
     }
 
     private static Map<String, MetadataRow> rowLookup(MetadataTable table) {
@@ -129,10 +187,17 @@ public final class MetadataTableIO {
 
     public static final class ImportResult {
         private final List<String> unmatchedFiles;
+        private final List<String> duplicateFiles;
+        private final List<String> uncoveredFiles;
 
-        private ImportResult(List<String> unmatchedFiles) {
+        private ImportResult(List<String> unmatchedFiles, List<String> duplicateFiles,
+                List<String> uncoveredFiles) {
             this.unmatchedFiles = java.util.Collections.unmodifiableList(
                     new ArrayList<String>(unmatchedFiles));
+            this.duplicateFiles = java.util.Collections.unmodifiableList(
+                    new ArrayList<String>(duplicateFiles));
+            this.uncoveredFiles = java.util.Collections.unmodifiableList(
+                    new ArrayList<String>(uncoveredFiles));
         }
 
         public List<String> unmatchedFiles() {
@@ -141,6 +206,44 @@ public final class MetadataTableIO {
 
         public boolean hasUnmatchedFiles() {
             return !unmatchedFiles.isEmpty();
+        }
+
+        public List<String> duplicateFiles() {
+            return duplicateFiles;
+        }
+
+        public List<String> uncoveredFiles() {
+            return uncoveredFiles;
+        }
+
+        public boolean isComplete() {
+            return unmatchedFiles.isEmpty() && duplicateFiles.isEmpty()
+                    && uncoveredFiles.isEmpty();
+        }
+
+        public String problemSummary() {
+            List<String> parts = new ArrayList<String>();
+            if (!unmatchedFiles.isEmpty()) {
+                parts.add("unknown CSV files: " + join(unmatchedFiles));
+            }
+            if (!duplicateFiles.isEmpty()) {
+                parts.add("duplicate CSV files: " + join(duplicateFiles));
+            }
+            if (!uncoveredFiles.isEmpty()) {
+                parts.add("input files missing from CSV: " + join(uncoveredFiles));
+            }
+            return parts.isEmpty() ? "Metadata CSV is complete."
+                    : "Metadata CSV does not match the input folder ("
+                    + join(parts) + ").";
+        }
+
+        private static String join(List<String> values) {
+            StringBuilder text = new StringBuilder();
+            for (int i = 0; i < values.size(); i++) {
+                if (i > 0) text.append(", ");
+                text.append(values.get(i));
+            }
+            return text.toString();
         }
     }
 }

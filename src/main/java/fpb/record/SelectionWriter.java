@@ -59,6 +59,7 @@ public final class SelectionWriter {
                                 yesNo(isChosen(record, chosenSubjects)))));
                     }
                 }
+                CsvSupport.requireNoError(out, temp);
             } finally {
                 out.close();
             }

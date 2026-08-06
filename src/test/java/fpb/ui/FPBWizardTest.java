@@ -34,6 +34,61 @@ public class FPBWizardTest {
         assertEquals("Channels", FPBWizard.primaryButtonLabel(step, true));
     }
 
+    @Test
+    public void fullScreenButtonAlwaysNamesTheAvailableAction() {
+        assertEquals("Full screen", FPBWizard.fullScreenButtonText(false));
+        assertEquals("Exit full screen", FPBWizard.fullScreenButtonText(true));
+    }
+
+    @Test
+    public void exportPrimaryActionKeepsWizardOpenForProgressAndSummary() {
+        Step5Export export = new Step5Export(new FPBWizard.Context());
+
+        assertFalse(export.primaryActionClosesWizard());
+        assertTrue(export instanceof AutoCloseable);
+    }
+
+    @Test
+    public void upstreamMutationRevokesHistoricallyCompletedStepJumps() {
+        assertEquals(0, FPBWizard.invalidatedMaxCompletedIndex(4, 0));
+        assertEquals(1, FPBWizard.invalidatedMaxCompletedIndex(4, 1));
+        assertEquals(1, FPBWizard.invalidatedMaxCompletedIndex(1, 3));
+    }
+
+    @Test
+    public void exportDisablesWizardNavigationAndPreventsPrematureClosing() {
+        assertTrue(FPBWizard.navigationEnabledWhile(false));
+        assertFalse(FPBWizard.navigationEnabledWhile(true));
+        assertTrue(FPBWizard.wizardMayClose(false));
+        assertFalse(FPBWizard.wizardMayClose(true));
+    }
+
+    @Test
+    public void enteringGuidedStepsClearsQuickGridRouteState() {
+        assertTrue(FPBWizard.quickGridRequestedForStep(true, 3));
+        assertFalse(FPBWizard.quickGridRequestedForStep(true, 2));
+        assertFalse(FPBWizard.quickGridRequestedForStep(true, 1));
+        assertFalse(FPBWizard.quickGridRequestedForStep(false, 3));
+    }
+
+    @Test
+    public void leavingQuickGridLayoutRoutesThroughImagesBeforeGuidedSteps() {
+        assertEquals(0, FPBWizard.navigationTarget(true, 2));
+        assertEquals(0, FPBWizard.navigationTarget(true, 1));
+        assertEquals(0, FPBWizard.navigationTarget(true, 0));
+        assertEquals(3, FPBWizard.navigationTarget(true, 3));
+        assertEquals(2, FPBWizard.navigationTarget(false, 2));
+        assertTrue(FPBWizard.quickGridRequestedForStep(true,
+                FPBWizard.navigationTarget(true, 2)));
+    }
+
+    @Test
+    public void cancelledWorkerDoesNotUnlockUntilItsBackgroundActuallyExits() {
+        assertFalse(Step5Export.exportRunMayFinish(false, true));
+        assertFalse(Step5Export.exportRunMayFinish(true, false));
+        assertTrue(Step5Export.exportRunMayFinish(true, true));
+    }
+
     private static final class StubStep implements WizardStep {
         private final String nextTitle;
 

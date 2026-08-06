@@ -9,6 +9,7 @@
 package fpb;
 
 import fpb.render.ChannelColour;
+import fpb.record.OutputTree;
 import fpb.ui.Step5Export;
 import fpb.util.CsvSupport;
 import org.junit.Rule;
@@ -28,6 +29,7 @@ import java.nio.file.Files;
 import java.util.Iterator;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -56,24 +58,35 @@ public class EndToEndTest {
 
         Step5Export.ExportResult export = FPB.runAndWrite(params);
         File figureDir = export.figureDirectory();
+        File supportingDir = new File(figureDir, OutputTree.SUPPORTING_DIR);
 
         assertFileExists(new File(figureDir, "figure.png"));
         assertFileExists(new File(figureDir, "figure.tif"));
         assertFileExists(new File(figureDir, "figure.svg"));
-        assertFileExists(new File(figureDir, "manifest.csv"));
-        assertFileExists(new File(figureDir, "selection.csv"));
-        assertFileExists(new File(figureDir, "methods.txt"));
-        assertFileExists(new File(figureDir, "README.txt"));
-        File[] panelFiles = new File(figureDir, "panels").listFiles();
-        assertTrue(panelFiles != null && panelFiles.length >= 16);
+        assertFileExists(new File(supportingDir, "manifest.csv"));
+        assertFileExists(new File(supportingDir, "selection.csv"));
+        assertFileExists(new File(supportingDir, "group_quantification.csv"));
+        assertFileExists(new File(supportingDir, "group_quantification.png"));
+        assertFalse(new File(figureDir, "group_quantification.csv").exists());
+        assertFalse(new File(figureDir, "group_quantification.png").exists());
+        assertFileExists(new File(supportingDir, "metadata.csv"));
+        assertFileExists(new File(supportingDir, "methods.txt"));
+        assertFileExists(new File(supportingDir, "README.txt"));
+        File[] panelFiles = new File(supportingDir, "panels").listFiles();
+        assertTrue(panelFiles != null);
+        assertEquals(20, panelFiles.length);
+        assertEquals(16, countEnding(panelFiles, ".png"));
+        assertEquals(4, countEnding(panelFiles, "_channels.tif"));
 
         assertEquals(300, pngDpi(new File(figureDir, "figure.png")));
         assertSvgHasEditableText(new File(figureDir, "figure.svg"));
-        assertCsvRowsAndColumns(new File(figureDir, "manifest.csv"), 16, "Section");
-        assertCsvRowsAndColumns(new File(figureDir, "selection.csv"), 72);
+        assertCsvRowsAndColumns(new File(supportingDir, "manifest.csv"), 16,
+                "Section");
+        assertCsvRowsAndColumns(new File(supportingDir, "selection.csv"), 72);
 
         String methods = new String(Files.readAllBytes(
-                new File(figureDir, "methods.txt").toPath()), StandardCharsets.UTF_8);
+                new File(supportingDir, "methods.txt").toPath()),
+                StandardCharsets.UTF_8);
         assertTrue(methods.contains("Display range DAPI"));
         assertTrue(methods.contains("Display range GFAP"));
         assertTrue(methods.contains("Display range Iba1"));
@@ -86,6 +99,15 @@ public class EndToEndTest {
 
     private static void assertFileExists(File file) {
         assertTrue(file.getAbsolutePath(), file.isFile());
+    }
+
+    private static int countEnding(File[] files, String ending) {
+        int count = 0;
+        if (files == null) return count;
+        for (File file : files) {
+            if (file != null && file.getName().endsWith(ending)) count++;
+        }
+        return count;
     }
 
     private static void assertSvgHasEditableText(File svg) throws Exception {

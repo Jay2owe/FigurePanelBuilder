@@ -8,6 +8,7 @@
  */
 package fpb.ui;
 
+import fpb.io.ImageSource;
 import fpb.meta.TokenStrategy;
 
 import java.awt.BorderLayout;
@@ -21,7 +22,7 @@ import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 
-/** Shows real filename tokens and lets the user map each token to a metadata field. */
+/** Shows real file/series tokens and lets the user map them to metadata fields. */
 public final class TokenPicker extends JPanel {
 
     private static final String GROUP = "Group";
@@ -30,10 +31,11 @@ public final class TokenPicker extends JPanel {
     private static final String IGNORE = "--";
 
     private final JComboBox<String> separatorChoice;
+    private final JLabel splitLabel;
     private final JPanel tokensPanel;
     private final Map<Integer, JComboBox<String>> fieldChoices =
             new LinkedHashMap<Integer, JComboBox<String>>();
-    private File sampleFile;
+    private ImageSource sampleSource;
     private Runnable changeListener;
     private boolean rebuilding;
 
@@ -41,7 +43,8 @@ public final class TokenPicker extends JPanel {
         super(new BorderLayout(8, 6));
         JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         top.setOpaque(false);
-        top.add(new JLabel("Split filename on"));
+        splitLabel = new JLabel("Split filename on");
+        top.add(splitLabel);
         separatorChoice = new JComboBox<String>(new String[] { "_", "-", ".", "space" });
         separatorChoice.addActionListener(new java.awt.event.ActionListener() {
             @Override
@@ -66,18 +69,30 @@ public final class TokenPicker extends JPanel {
     }
 
     public void setSampleFile(File file, TokenStrategy strategy) {
-        sampleFile = file == null ? null : file.getAbsoluteFile();
+        setSampleSource(file == null ? null : ImageSource.file(file), strategy);
+    }
+
+    public void setSampleSource(ImageSource source, TokenStrategy strategy) {
+        sampleSource = source;
         rebuilding = true;
         try {
             if (strategy != null) separatorChoice.setSelectedItem(labelFor(strategy.separator()));
-            rebuildTokenChoices(strategy == null ? defaultAssignment() : strategy.assignment());
+            splitLabel.setText(isSeriesSample()
+                    ? "Split individual series name on"
+                    : "Split filename on");
+            Map<Integer, TokenStrategy.Field> initial = strategy == null
+                    || (isSeriesSample() && !strategy.splitsSeriesLabels())
+                    ? defaultAssignment() : strategy.assignment();
+            rebuildTokenChoices(initial);
         } finally {
             rebuilding = false;
         }
     }
 
     public TokenStrategy strategy() {
-        return new TokenStrategy(separator(), assignment());
+        return isSeriesSample()
+                ? TokenStrategy.forSeriesLabels(separator(), assignment())
+                : new TokenStrategy(separator(), assignment());
     }
 
     public Map<Integer, TokenStrategy.Field> assignment() {
@@ -98,6 +113,23 @@ public final class TokenPicker extends JPanel {
     public void setTokenField(int index, TokenStrategy.Field field) {
         JComboBox<String> choice = fieldChoices.get(Integer.valueOf(index));
         if (choice != null) choice.setSelectedItem(labelFor(field));
+    }
+
+    public String sampleTextForTest() {
+        return sampleText();
+    }
+
+    public String splitLabelForTest() {
+        return splitLabel.getText();
+    }
+
+    public boolean groupChoiceAvailableForTest(int index) {
+        JComboBox<String> choice = fieldChoices.get(Integer.valueOf(index));
+        if (choice == null) return false;
+        for (int i = 0; i < choice.getItemCount(); i++) {
+            if (GROUP.equals(choice.getItemAt(i))) return true;
+        }
+        return false;
     }
 
     @Override
@@ -138,16 +170,30 @@ public final class TokenPicker extends JPanel {
     }
 
     private String[] tokensForSample() {
-        if (sampleFile == null) return new String[] { "" };
-        return splitTokens(basenameWithoutExtension(sampleFile), separator());
+        return splitTokens(sampleText(), separator());
     }
 
     private Map<Integer, TokenStrategy.Field> defaultAssignment() {
         Map<Integer, TokenStrategy.Field> assignment =
                 new LinkedHashMap<Integer, TokenStrategy.Field>();
-        assignment.put(Integer.valueOf(0), TokenStrategy.Field.GROUP);
-        assignment.put(Integer.valueOf(1), TokenStrategy.Field.SUBJECT);
+        if (isSeriesSample()) {
+            return TokenStrategy.guessSeriesAssignment(
+                    java.util.Collections.singletonList(sampleText()), separator());
+        } else {
+            assignment.put(Integer.valueOf(0), TokenStrategy.Field.GROUP);
+            assignment.put(Integer.valueOf(1), TokenStrategy.Field.SUBJECT);
+        }
         return assignment;
+    }
+
+    private boolean isSeriesSample() {
+        return sampleSource != null && sampleSource.isSeries();
+    }
+
+    private String sampleText() {
+        if (sampleSource == null) return "";
+        return isSeriesSample() ? sampleSource.seriesLabel()
+                : basenameWithoutExtension(sampleSource.file());
     }
 
     private void fireChanged() {

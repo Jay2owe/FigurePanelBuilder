@@ -17,7 +17,7 @@ import fpb.render.ChannelColour;
 import fpb.render.DisplayRange;
 import fpb.render.FPBRenderer;
 import fpb.stats.GroupStats;
-import fpb.stats.SelectionRecord;
+import fpb.stats.GroupQuantification;
 import fpb.stats.Statistic;
 import fpb.stats.SubjectAggregator;
 import fpb.stats.Suggestion;
@@ -35,46 +35,66 @@ import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertTrue;
 
 public class SpinePainterTest {
 
     @Test
-    public void markedSubjectMatchesStageFiveSuggestionForBasicFixture()
+    public void everyImageSectionGetsItsOwnTraceForEachGroup()
             throws Exception {
         Computed computed = computedBasic();
 
         for (String group : computed.subjects.groups()) {
             Suggestion.Result suggestion = computed.suggestions.get(group);
-            SpinePainter.GroupData spine = SpinePainter.groupData(computed.records,
-                    group, computed.subjects.subjectsInGroup(group));
+            SpinePainter.GroupData spine = SpinePainter.groupData(
+                    computed.quantification, group);
 
             assertNotNull(suggestion);
-            assertTrue(spine.trace(suggestion.suggestedSubject()).suggested());
+            assertEquals(computed.subjects.sectionsInGroup(group).size(),
+                    spine.traces().size());
+            boolean foundSuggestedSection = false;
+            for (SpinePainter.SectionTrace trace : spine.traces()) {
+                if (suggestion.isSuggested(trace.subject())) {
+                    foundSuggestedSection = true;
+                }
+            }
+            assertTrue(foundSuggestedSection);
         }
     }
 
     @Test
-    public void sectionCountsDriveTickModel() {
-        List<SelectionRecord> records = new ArrayList<SelectionRecord>();
-        records.add(new SelectionRecord("Control", "S1", 0, "C1",
-                10.0, 20.0, -10.0, -0.5, 3, true));
-        records.add(new SelectionRecord("Control", "S2", 0, "C1",
-                30.0, 20.0, 10.0, 0.5, 1, false));
+    public void sectionsFromOneAnimalRemainDistinctTraces() throws Exception {
+        File folder = fixture("sections");
+        List<File> files = imageFiles(folder);
+        Map<Integer, TokenStrategy.Field> assignment =
+                new LinkedHashMap<Integer, TokenStrategy.Field>();
+        assignment.put(Integer.valueOf(0), TokenStrategy.Field.GROUP);
+        assignment.put(Integer.valueOf(1), TokenStrategy.Field.SUBJECT);
+        assignment.put(Integer.valueOf(2), TokenStrategy.Field.SECTION);
+        MetadataTable table = MetadataTable.fromFiles(folder, files,
+                new TokenStrategy('_', assignment));
+        ImageLoader.LoadResult loaded = new ImageLoader(150, 2)
+                .loadFiles(files, ProgressCallback.NONE);
+        SubjectAggregator.SubjectStats subjects = SubjectAggregator.aggregate(table,
+                Statistic.brightestOnePercentMeans(loaded.histogramCache()));
+        SpinePainter.GroupData spine = SpinePainter.groupData(
+                GroupQuantification.from(subjects), "Control");
 
-        SpinePainter.GroupData spine = SpinePainter.groupData(records, "Control",
-                Arrays.asList("S1", "S2"));
-
-        assertEquals(3, spine.trace("S1").sectionCount(0));
-        assertEquals(1, spine.trace("S2").sectionCount(0));
+        assertEquals(4, spine.traces().size());
+        assertEquals("S1", spine.trace(0).subject());
+        assertEquals("sec1", spine.trace(0).section());
+        assertEquals("S1", spine.trace(1).subject());
+        assertEquals("sec2", spine.trace(1).section());
+        assertNotSame(spine.trace(0), spine.trace(1));
     }
 
     @Test
     public void brightnessRenderReusesCachedSpine() throws Exception {
         Computed computed = computedBasic();
         String group = "Control";
-        SpinePainter.GroupData spine = SpinePainter.groupData(computed.records,
-                group, computed.subjects.subjectsInGroup(group));
+        SpinePainter.GroupData spine = SpinePainter.groupData(
+                computed.quantification, group);
         RowImage.SubjectRow row = new RowImage.SubjectRow(group, "S3", 2, true, spine);
         List<FPBRenderer.ChannelRequest> channels =
                 new ArrayList<FPBRenderer.ChannelRequest>();
@@ -106,9 +126,8 @@ public class SpinePainterTest {
                 SubjectAggregator.aggregate(table, values);
         GroupStats groupStats = GroupStats.from(subjects);
         Map<String, Suggestion.Result> suggestions = Suggestion.suggest(groupStats);
-        List<SelectionRecord> records =
-                SelectionRecord.from(subjects, groupStats, suggestions);
-        return new Computed(loaded, subjects, suggestions, records);
+        return new Computed(loaded, subjects, suggestions,
+                GroupQuantification.from(subjects));
     }
 
     private static MetadataTable basicTable() throws Exception {
@@ -145,16 +164,16 @@ public class SpinePainterTest {
         final ImageLoader.LoadResult loaded;
         final SubjectAggregator.SubjectStats subjects;
         final Map<String, Suggestion.Result> suggestions;
-        final List<SelectionRecord> records;
+        final GroupQuantification quantification;
 
         Computed(ImageLoader.LoadResult loaded,
                 SubjectAggregator.SubjectStats subjects,
                 Map<String, Suggestion.Result> suggestions,
-                List<SelectionRecord> records) {
+                GroupQuantification quantification) {
             this.loaded = loaded;
             this.subjects = subjects;
             this.suggestions = suggestions;
-            this.records = records;
+            this.quantification = quantification;
         }
     }
 }

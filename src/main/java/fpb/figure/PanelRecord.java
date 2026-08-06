@@ -13,6 +13,7 @@ import java.io.File;
 /** One rendered panel with metadata needed for layout and calibrated annotations. */
 public final class PanelRecord {
     private final File imageFile;
+    private final File sourceFile;
     private File annotatedImageFile;
     private final String group;
     private final String subject;
@@ -40,7 +41,18 @@ public final class PanelRecord {
             String imageId, String outputName, String channelName, int channelIndex,
             int widthPx, int heightPx, double pixelWidthUm, double pixelHeightUm,
             CalibrationCheck.CalibrationSource calibrationSource) {
+        this(imageFile, imageFile, group, subject, section, imageId, outputName,
+                channelName, channelIndex, widthPx, heightPx, pixelWidthUm,
+                pixelHeightUm, calibrationSource);
+    }
+
+    public PanelRecord(File imageFile, File sourceFile, String group, String subject,
+            String section, String imageId, String outputName, String channelName,
+            int channelIndex, int widthPx, int heightPx, double pixelWidthUm,
+            double pixelHeightUm,
+            CalibrationCheck.CalibrationSource calibrationSource) {
         this.imageFile = imageFile == null ? null : imageFile.getAbsoluteFile();
+        this.sourceFile = sourceFile == null ? null : sourceFile.getAbsoluteFile();
         this.group = clean(group, "Unassigned");
         this.subject = clean(subject, "Unknown");
         this.section = clean(section, "");
@@ -58,6 +70,11 @@ public final class PanelRecord {
 
     public File imageFile() {
         return imageFile;
+    }
+
+    /** Original microscopy input from which this rendered panel was produced. */
+    public File sourceFile() {
+        return sourceFile;
     }
 
     public File annotatedImageFile() {

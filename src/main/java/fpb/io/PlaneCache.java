@@ -55,28 +55,55 @@ public final class PlaneCache {
         throw new IllegalArgumentException("No cached image for " + sourceFile);
     }
 
+    public Plane plane(ImageSource source, int channelIndex) {
+        if (source == null) throw new IllegalArgumentException("source must not be null");
+        for (ImagePlanes image : images) {
+            if (image.source.equals(source)) return image.plane(channelIndex);
+        }
+        throw new IllegalArgumentException("No cached image for " + source);
+    }
+
     private static String normalizedPath(File file) {
         if (file == null) throw new IllegalArgumentException("sourceFile must not be null");
         return file.getAbsoluteFile().toURI().normalize().getPath();
     }
 
     public static final class ImagePlanes {
+        private final ImageSource source;
         private final File sourceFile;
         private final String normalizedSourcePath;
         private final int bitDepth;
+        private final int sourceWidthPx;
+        private final int sourceHeightPx;
         private final Calibration calibration;
+        private final boolean bioFormats;
         private final List<Plane> planes;
 
-        ImagePlanes(File sourceFile, int bitDepth, Calibration calibration,
+        ImagePlanes(File sourceFile, int bitDepth, int sourceWidthPx,
+                int sourceHeightPx, Calibration calibration, boolean bioFormats,
                 List<Plane> planes) {
-            if (sourceFile == null) throw new IllegalArgumentException("sourceFile is null");
+            this(ImageSource.file(sourceFile), bitDepth, sourceWidthPx,
+                    sourceHeightPx, calibration, bioFormats, planes);
+        }
+
+        ImagePlanes(ImageSource source, int bitDepth, int sourceWidthPx,
+                int sourceHeightPx, Calibration calibration, boolean bioFormats,
+                List<Plane> planes) {
+            if (source == null) throw new IllegalArgumentException("source is null");
             if (planes == null || planes.isEmpty()) {
                 throw new IllegalArgumentException("planes must not be empty");
             }
-            this.sourceFile = sourceFile.getAbsoluteFile();
-            normalizedSourcePath = normalizedPath(sourceFile);
+            this.source = source;
+            this.sourceFile = source.file();
+            normalizedSourcePath = normalizedPath(source.file());
             this.bitDepth = bitDepth;
+            if (sourceWidthPx <= 0 || sourceHeightPx <= 0) {
+                throw new IllegalArgumentException("source dimensions must be positive");
+            }
+            this.sourceWidthPx = sourceWidthPx;
+            this.sourceHeightPx = sourceHeightPx;
             this.calibration = calibration == null ? null : calibration.copy();
+            this.bioFormats = bioFormats;
             this.planes = Collections.unmodifiableList(new ArrayList<Plane>(planes));
         }
 
@@ -84,12 +111,28 @@ public final class PlaneCache {
             return sourceFile;
         }
 
+        public ImageSource source() {
+            return source;
+        }
+
         public int bitDepth() {
             return bitDepth;
         }
 
+        public int sourceWidthPx() {
+            return sourceWidthPx;
+        }
+
+        public int sourceHeightPx() {
+            return sourceHeightPx;
+        }
+
         public Calibration calibration() {
             return calibration == null ? null : calibration.copy();
+        }
+
+        public boolean openedWithBioFormats() {
+            return bioFormats;
         }
 
         public int channelCount() {

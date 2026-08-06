@@ -30,7 +30,7 @@ public final class ManifestWriter {
 
     public static final List<String> COLUMNS = Collections.unmodifiableList(Arrays.asList(
             "Group", "Subject", "Section", "SourceFile", "SourceImageId",
-            "ChannelIndex", "ChannelName", "LUT", "PanelFile", "WidthPx",
+            "ZMode", "ChannelIndex", "ChannelName", "LUT", "PanelFile", "WidthPx",
             "HeightPx", "PixelWidthUm", "PixelHeightUm", "CalibrationSource",
             "DisplayMin", "DisplayMax", "RangeSource", "ClippedLowPct",
             "ClippedHighPct", "StatisticName", "StatisticValue", "GroupMean",
@@ -51,6 +51,7 @@ public final class ManifestWriter {
                 for (Row row : safeRows(rows)) {
                     out.println(CsvSupport.joinRow(row.fields()));
                 }
+                CsvSupport.requireNoError(out, temp);
             } finally {
                 out.close();
             }
@@ -79,6 +80,7 @@ public final class ManifestWriter {
 
     public static final class Row {
         private final PanelRecord panel;
+        private final String zMode;
         private final String lut;
         private final File panelFile;
         private final DisplayRange displayRange;
@@ -100,7 +102,8 @@ public final class ManifestWriter {
                 int groupRank, String suggestedSubject, String chosenSubject) {
             this(panel, lut, panelFile, displayRange, clip, "locked",
                     statisticName, statisticValue, groupMean, groupRank,
-                    suggestedSubject, chosenSubject, "representative", "metadata");
+                    suggestedSubject, chosenSubject, "representative", "metadata",
+                    "not available");
         }
 
         public Row(PanelRecord panel, String lut, File panelFile,
@@ -108,11 +111,25 @@ public final class ManifestWriter {
                 String rangeSource, String statisticName, double statisticValue,
                 double groupMean, int groupRank, String suggestedSubject,
                 String chosenSubject, String selectionMethod, String grouping) {
+            this(panel, lut, panelFile, displayRange, clip, rangeSource,
+                    statisticName, statisticValue, groupMean, groupRank,
+                    suggestedSubject, chosenSubject, selectionMethod, grouping,
+                    "not available");
+        }
+
+        public Row(PanelRecord panel, String lut, File panelFile,
+                DisplayRange displayRange, ClipReport.ChannelClip clip,
+                String rangeSource, String statisticName, double statisticValue,
+                double groupMean, int groupRank, String suggestedSubject,
+                String chosenSubject, String selectionMethod, String grouping,
+                String zMode) {
             if (panel == null) throw new IllegalArgumentException("panel is required");
-            if (displayRange == null || !displayRange.isValid()) {
+            if (panel.channelIndex() >= 0
+                    && (displayRange == null || !displayRange.isValid())) {
                 throw new IllegalStateException("A locked display range is required for manifest.csv.");
             }
             this.panel = panel;
+            this.zMode = valueOrNotAvailable(zMode);
             this.lut = valueOrNotAvailable(lut);
             this.panelFile = panelFile == null ? null : panelFile.getAbsoluteFile();
             this.displayRange = displayRange;
@@ -134,8 +151,9 @@ public final class ManifestWriter {
                     panel.group(),
                     panel.subject(),
                     panel.section(),
-                    fileValue(panel.imageFile()),
+                    fileValue(panel.sourceFile()),
                     text(panel.imageId()),
+                    zMode,
                     String.valueOf(panel.channelIndex()),
                     text(panel.channelName()),
                     lut,
@@ -145,8 +163,10 @@ public final class ManifestWriter {
                     number(panel.pixelWidthUm()),
                     number(panel.pixelHeightUm()),
                     calibrationSource(panel.calibrationSource()),
-                    String.valueOf(displayRange.min()),
-                    String.valueOf(displayRange.max()),
+                    displayRange == null ? "not available"
+                            : String.valueOf(displayRange.min()),
+                    displayRange == null ? "not available"
+                            : String.valueOf(displayRange.max()),
                     rangeSource,
                     number(clippedLowPct),
                     number(clippedHighPct),

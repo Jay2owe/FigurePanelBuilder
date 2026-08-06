@@ -22,4 +22,14 @@ public interface WizardStep {
     void onShow();
 
     boolean canAdvance();
+
+    /** Invoked by the wizard's primary button on the final step. */
+    default void onPrimaryAction() {
+        // Most steps only navigate; final action steps may override.
+    }
+
+    /** Whether a final-step primary action should close the wizard immediately. */
+    default boolean primaryActionClosesWizard() {
+        return true;
+    }
 }

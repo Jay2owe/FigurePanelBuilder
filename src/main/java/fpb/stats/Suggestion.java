@@ -52,11 +52,15 @@ public final class Suggestion {
         }
         Collections.sort(candidates, CandidateScore.BY_RULE);
         List<String> shortlist = new ArrayList<String>();
+        List<String> rankedSubjects = new ArrayList<String>();
+        for (CandidateScore candidate : candidates) {
+            rankedSubjects.add(candidate.subject);
+        }
         for (int i = 0; i < candidates.size() && i < 3; i++) {
             shortlist.add(candidates.get(i).subject);
         }
         String suggested = shortlist.isEmpty() ? "" : shortlist.get(0);
-        return new Result(group, suggested, shortlist);
+        return new Result(group, suggested, shortlist, rankedSubjects);
     }
 
     private static final class CandidateScore {
@@ -92,11 +96,15 @@ public final class Suggestion {
         private final String group;
         private final String suggestedSubject;
         private final List<String> shortlist;
+        private final List<String> rankedSubjects;
 
-        private Result(String group, String suggestedSubject, List<String> shortlist) {
+        private Result(String group, String suggestedSubject, List<String> shortlist,
+                List<String> rankedSubjects) {
             this.group = group;
             this.suggestedSubject = suggestedSubject;
             this.shortlist = Collections.unmodifiableList(new ArrayList<String>(shortlist));
+            this.rankedSubjects = Collections.unmodifiableList(
+                    new ArrayList<String>(rankedSubjects));
         }
 
         public String group() {
@@ -114,6 +122,17 @@ public final class Suggestion {
 
         public boolean isSuggested(String subject) {
             return suggestedSubject.equals(subject);
+        }
+
+        /** All candidate subjects in deterministic suggestion order. */
+        public List<String> rankedSubjects() {
+            return rankedSubjects;
+        }
+
+        /** One-based rank, or zero when the subject was not rankable. */
+        public int rankOf(String subject) {
+            int index = rankedSubjects.indexOf(subject);
+            return index < 0 ? 0 : index + 1;
         }
     }
 }

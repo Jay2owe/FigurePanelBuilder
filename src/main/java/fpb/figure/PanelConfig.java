@@ -11,7 +11,9 @@ package fpb.figure;
 import java.awt.Color;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /** User-facing composition and annotation settings for panel images. */
 public final class PanelConfig {
@@ -36,6 +38,26 @@ public final class PanelConfig {
         CUSTOM
     }
 
+    public enum TextOrientation {
+        HORIZONTAL,
+        ROTATE_LEFT,
+        ROTATE_RIGHT
+    }
+
+    public enum TextAlignment {
+        LEFT,
+        CENTER,
+        RIGHT
+    }
+
+    public enum ExternalLabelKind {
+        GROUP,
+        COLUMN,
+        ROW
+    }
+
+    private static final String EXTERNAL_LABEL_SEPARATOR = "\u001f";
+
     private final boolean createOverviewPanel;
     private final boolean annotateOverviewPanel;
     private final boolean annotateIndividualPanels;
@@ -57,15 +79,25 @@ public final class PanelConfig {
     private final int rowGapPx;
     private final int groupFontSizePx;
     private final int channelFontSizePx;
+    private final int rowFontSizePx;
+    private final TextAlignment groupHeaderAlignment;
+    private final TextOrientation channelHeaderOrientation;
+    private final TextOrientation rowLabelOrientation;
+    private final int channelHeaderGapPx;
+    private final int rowLabelGapPx;
     private final boolean groupHeaderVisible;
     private final boolean channelHeaderVisible;
+    private final boolean rowLabelVisible;
     private final int outputDpi;
     private final int exportScale;
     private final double labelFracX;
     private final double labelFracY;
     private final double scaleBarFracX;
     private final double scaleBarFracY;
+    private final boolean annotationSnapEnabled;
     private final List<List<String>> groupLayoutRows;
+    private final Map<String, String> externalLabelOverrides;
+    private final Map<String, String> imageOrientations;
 
     private PanelConfig(Builder b) {
         this.annotateIndividualPanels = b.annotateIndividualPanels;
@@ -75,7 +107,11 @@ public final class PanelConfig {
         this.channelOrder = Collections.unmodifiableList(new ArrayList<String>(b.channelOrder));
         this.cellSizePx = clamp(b.cellSizePx, 80, 1200);
         this.scaleBarEnabled = b.scaleBarEnabled;
-        this.scaleBarLengthUm = b.scaleBarLengthUm > 0.0 ? b.scaleBarLengthUm : 100.0;
+        if (!Double.isFinite(b.scaleBarLengthUm) || b.scaleBarLengthUm <= 0.0) {
+            throw new IllegalArgumentException(
+                    "scaleBarLengthUm must be finite and positive");
+        }
+        this.scaleBarLengthUm = b.scaleBarLengthUm;
         this.scaleBarThicknessPx = clamp(b.scaleBarThicknessPx, 1, 30);
         this.scaleBarPosition = b.scaleBarPosition == null
                 ? Position.BOTTOM_RIGHT : b.scaleBarPosition;
@@ -91,15 +127,28 @@ public final class PanelConfig {
         this.rowGapPx = clamp(b.rowGapPx, 0, 400);
         this.groupFontSizePx = clamp(b.groupFontSizePx, 6, 96);
         this.channelFontSizePx = clamp(b.channelFontSizePx, 6, 96);
+        this.rowFontSizePx = clamp(b.rowFontSizePx, 6, 96);
+        this.groupHeaderAlignment = b.groupHeaderAlignment == null
+                ? TextAlignment.LEFT : b.groupHeaderAlignment;
+        this.channelHeaderOrientation = b.channelHeaderOrientation == null
+                ? TextOrientation.HORIZONTAL : b.channelHeaderOrientation;
+        this.rowLabelOrientation = b.rowLabelOrientation == null
+                ? TextOrientation.HORIZONTAL : b.rowLabelOrientation;
+        this.channelHeaderGapPx = clamp(b.channelHeaderGapPx, 0, 200);
+        this.rowLabelGapPx = clamp(b.rowLabelGapPx, 0, 200);
         this.groupHeaderVisible = b.groupHeaderVisible;
         this.channelHeaderVisible = b.channelHeaderVisible;
+        this.rowLabelVisible = b.rowLabelVisible;
         this.outputDpi = clamp(b.outputDpi, 72, 2400);
         this.exportScale = clamp(b.exportScale, 1, 4);
         this.labelFracX = clampFrac(b.labelFracX);
         this.labelFracY = clampFrac(b.labelFracY);
         this.scaleBarFracX = clampFrac(b.scaleBarFracX);
         this.scaleBarFracY = clampFrac(b.scaleBarFracY);
+        this.annotationSnapEnabled = b.annotationSnapEnabled;
         this.groupLayoutRows = copyRows(b.groupLayoutRows);
+        this.externalLabelOverrides = copyOverrides(b.externalLabelOverrides);
+        this.imageOrientations = copyImageOrientations(b.imageOrientations);
     }
 
     public static Builder builder() {
@@ -133,15 +182,25 @@ public final class PanelConfig {
                 .rowGapPx(rowGapPx)
                 .groupFontSizePx(groupFontSizePx)
                 .channelFontSizePx(channelFontSizePx)
+                .rowFontSizePx(rowFontSizePx)
+                .groupHeaderAlignment(groupHeaderAlignment)
+                .channelHeaderOrientation(channelHeaderOrientation)
+                .rowLabelOrientation(rowLabelOrientation)
+                .channelHeaderGapPx(channelHeaderGapPx)
+                .rowLabelGapPx(rowLabelGapPx)
                 .groupHeaderVisible(groupHeaderVisible)
                 .channelHeaderVisible(channelHeaderVisible)
+                .rowLabelVisible(rowLabelVisible)
                 .outputDpi(outputDpi)
                 .exportScale(exportScale)
                 .labelFracX(labelFracX)
                 .labelFracY(labelFracY)
                 .scaleBarFracX(scaleBarFracX)
                 .scaleBarFracY(scaleBarFracY)
-                .groupLayoutRows(groupLayoutRows);
+                .annotationSnapEnabled(annotationSnapEnabled)
+                .groupLayoutRows(groupLayoutRows)
+                .externalLabelOverrides(externalLabelOverrides)
+                .imageOrientations(imageOrientations);
     }
 
     public boolean createOverviewPanel() {
@@ -228,12 +287,40 @@ public final class PanelConfig {
         return channelFontSizePx;
     }
 
+    public int rowFontSizePx() {
+        return rowFontSizePx;
+    }
+
+    public TextAlignment groupHeaderAlignment() {
+        return groupHeaderAlignment;
+    }
+
+    public TextOrientation channelHeaderOrientation() {
+        return channelHeaderOrientation;
+    }
+
+    public TextOrientation rowLabelOrientation() {
+        return rowLabelOrientation;
+    }
+
+    public int channelHeaderGapPx() {
+        return channelHeaderGapPx;
+    }
+
+    public int rowLabelGapPx() {
+        return rowLabelGapPx;
+    }
+
     public boolean groupHeaderVisible() {
         return groupHeaderVisible;
     }
 
     public boolean channelHeaderVisible() {
         return channelHeaderVisible;
+    }
+
+    public boolean rowLabelVisible() {
+        return rowLabelVisible;
     }
 
     public int outputDpi() {
@@ -268,12 +355,41 @@ public final class PanelConfig {
         return scaleBarFracX >= 0.0 && scaleBarFracY >= 0.0;
     }
 
+    public boolean annotationSnapEnabled() {
+        return annotationSnapEnabled;
+    }
+
     public List<List<String>> groupLayoutRows() {
         return groupLayoutRows;
     }
 
     public boolean hasGroupLayoutRows() {
         return !groupLayoutRows.isEmpty();
+    }
+
+    public String externalLabelOverride(ExternalLabelKind kind, String key) {
+        if (kind == null) return null;
+        return externalLabelOverrides.get(externalLabelKey(kind, key));
+    }
+
+    public String externalLabelText(ExternalLabelKind kind, String key,
+            String fallback) {
+        String override = externalLabelOverride(kind, key);
+        return override == null ? (fallback == null ? "" : fallback) : override;
+    }
+
+    public Map<String, String> externalLabelOverrides() {
+        return externalLabelOverrides;
+    }
+
+    public ImageOrientation imageOrientation(String imageId) {
+        String token = imageOrientations.get(normalizeImageId(imageId));
+        return ImageOrientation.fromToken(token);
+    }
+
+    /** Stable image-id to orientation-token mapping used by macro replay. */
+    public Map<String, String> imageOrientations() {
+        return imageOrientations;
     }
 
     private static int clamp(int value, int min, int max) {
@@ -305,6 +421,43 @@ public final class PanelConfig {
         return Collections.unmodifiableList(out);
     }
 
+    private static Map<String, String> copyOverrides(Map<String, String> input) {
+        LinkedHashMap<String, String> out = new LinkedHashMap<String, String>();
+        if (input != null) {
+            for (Map.Entry<String, String> entry : input.entrySet()) {
+                if (entry.getKey() == null || entry.getValue() == null) continue;
+                out.put(entry.getKey(), entry.getValue().trim());
+            }
+        }
+        return Collections.unmodifiableMap(out);
+    }
+
+    private static Map<String, String> copyImageOrientations(
+            Map<String, String> input) {
+        LinkedHashMap<String, String> out = new LinkedHashMap<String, String>();
+        if (input != null) {
+            for (Map.Entry<String, String> entry : input.entrySet()) {
+                String imageId = normalizeImageId(entry.getKey());
+                if (imageId.isEmpty() || entry.getValue() == null) continue;
+                ImageOrientation orientation = ImageOrientation.fromToken(
+                        entry.getValue());
+                if (!orientation.isIdentity()) {
+                    out.put(imageId, orientation.token());
+                }
+            }
+        }
+        return Collections.unmodifiableMap(out);
+    }
+
+    private static String normalizeImageId(String imageId) {
+        return imageId == null ? "" : imageId.trim().replace('\\', '/');
+    }
+
+    private static String externalLabelKey(ExternalLabelKind kind, String key) {
+        return kind.name() + EXTERNAL_LABEL_SEPARATOR
+                + (key == null ? "" : key.trim());
+    }
+
     public static final class Builder {
         private boolean createOverviewPanel;
         private boolean annotateOverviewPanel = true;
@@ -327,16 +480,28 @@ public final class PanelConfig {
         private int rowGapPx = 8;
         private int groupFontSizePx = 15;
         private int channelFontSizePx = 16;
+        private int rowFontSizePx = 14;
+        private TextAlignment groupHeaderAlignment = TextAlignment.LEFT;
+        private TextOrientation channelHeaderOrientation = TextOrientation.HORIZONTAL;
+        private TextOrientation rowLabelOrientation = TextOrientation.HORIZONTAL;
+        private int channelHeaderGapPx = 4;
+        private int rowLabelGapPx = 6;
         private boolean groupHeaderVisible = true;
         private boolean channelHeaderVisible = true;
+        private boolean rowLabelVisible = true;
         private int outputDpi = 300;
         private int exportScale = 1;
         private double labelFracX = -1.0;
         private double labelFracY = -1.0;
         private double scaleBarFracX = -1.0;
         private double scaleBarFracY = -1.0;
+        private boolean annotationSnapEnabled = true;
         private List<List<String>> groupLayoutRows =
                 new ArrayList<List<String>>();
+        private Map<String, String> externalLabelOverrides =
+                new LinkedHashMap<String, String>();
+        private Map<String, String> imageOrientations =
+                new LinkedHashMap<String, String>();
 
         public Builder createOverviewPanel(boolean value) {
             this.createOverviewPanel = value;
@@ -450,6 +615,36 @@ public final class PanelConfig {
             return this;
         }
 
+        public Builder rowFontSizePx(int value) {
+            this.rowFontSizePx = value;
+            return this;
+        }
+
+        public Builder groupHeaderAlignment(TextAlignment value) {
+            this.groupHeaderAlignment = value;
+            return this;
+        }
+
+        public Builder channelHeaderOrientation(TextOrientation value) {
+            this.channelHeaderOrientation = value;
+            return this;
+        }
+
+        public Builder rowLabelOrientation(TextOrientation value) {
+            this.rowLabelOrientation = value;
+            return this;
+        }
+
+        public Builder channelHeaderGapPx(int value) {
+            this.channelHeaderGapPx = value;
+            return this;
+        }
+
+        public Builder rowLabelGapPx(int value) {
+            this.rowLabelGapPx = value;
+            return this;
+        }
+
         public Builder groupHeaderVisible(boolean value) {
             this.groupHeaderVisible = value;
             return this;
@@ -457,6 +652,11 @@ public final class PanelConfig {
 
         public Builder channelHeaderVisible(boolean value) {
             this.channelHeaderVisible = value;
+            return this;
+        }
+
+        public Builder rowLabelVisible(boolean value) {
+            this.rowLabelVisible = value;
             return this;
         }
 
@@ -490,8 +690,47 @@ public final class PanelConfig {
             return this;
         }
 
+        public Builder annotationSnapEnabled(boolean value) {
+            this.annotationSnapEnabled = value;
+            return this;
+        }
+
         public Builder groupLayoutRows(List<List<String>> rows) {
             this.groupLayoutRows = copyRows(rows);
+            return this;
+        }
+
+        public Builder externalLabelOverrides(Map<String, String> values) {
+            this.externalLabelOverrides = new LinkedHashMap<String, String>(
+                    copyOverrides(values));
+            return this;
+        }
+
+        public Builder externalLabelOverride(ExternalLabelKind kind, String key,
+                String text) {
+            if (kind == null) throw new IllegalArgumentException("kind is required");
+            String mapKey = externalLabelKey(kind, key);
+            if (text == null) externalLabelOverrides.remove(mapKey);
+            else externalLabelOverrides.put(mapKey, text.trim());
+            return this;
+        }
+
+        public Builder imageOrientations(Map<String, String> values) {
+            this.imageOrientations = new LinkedHashMap<String, String>(
+                    copyImageOrientations(values));
+            return this;
+        }
+
+        public Builder imageOrientation(String imageId,
+                ImageOrientation orientation) {
+            String key = normalizeImageId(imageId);
+            if (key.isEmpty()) {
+                throw new IllegalArgumentException("imageId is required");
+            }
+            ImageOrientation value = orientation == null
+                    ? ImageOrientation.IDENTITY : orientation;
+            if (value.isIdentity()) imageOrientations.remove(key);
+            else imageOrientations.put(key, value.token());
             return this;
         }
 

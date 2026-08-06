@@ -9,6 +9,7 @@
 package fpb;
 
 import fpb.figure.PanelConfig;
+import fpb.figure.CalibrationOverride;
 import fpb.render.ChannelColour;
 import fpb.render.DisplayRange;
 
@@ -21,6 +22,8 @@ import java.util.Map;
 
 /** Immutable input bundle for the headless Figure Panel Builder API. */
 public final class FPBParameters {
+
+    public static final String BRIGHTEST_ONE_PERCENT_STATISTIC = "brightest_1pct";
 
     public enum MetadataMode {
         FILENAME_TOKENS,
@@ -47,6 +50,8 @@ public final class FPBParameters {
     private final File statisticCsv;
     private final String statisticColumn;
     private final Map<String, String> picks;
+    private final Map<String, String> pickImages;
+    private final Map<String, CalibrationOverride> calibrationOverrides;
     private final double scaleBarUm;
     private final PanelConfig.Position scaleBarCorner;
     private final int dpi;
@@ -56,9 +61,13 @@ public final class FPBParameters {
     private final boolean writeSvg;
     private final boolean writeIndividualPanels;
     private final boolean writeRecords;
+    private final boolean writeAllProjectPng;
+    private final boolean writeAllProjectTiffStacks;
     private final File outputFolder;
     private final String figureName;
     private final boolean hideDisplay;
+    private final boolean quickGrid;
+    private final PanelConfig panelConfig;
 
     private FPBParameters(Builder builder) {
         this.folder = absolute(builder.folder);
@@ -77,11 +86,17 @@ public final class FPBParameters {
         this.channels = Collections.unmodifiableList(
                 new ArrayList<Channel>(builder.channels));
         this.zMode = cleanOrDefault(builder.zMode, "max");
-        this.statistic = cleanOrDefault(builder.statistic, "brightest_1pct");
+        this.statistic = cleanOrDefault(builder.statistic,
+                BRIGHTEST_ONE_PERCENT_STATISTIC);
         this.statisticCsv = absolute(builder.statisticCsv);
         this.statisticColumn = clean(builder.statisticColumn);
         this.picks = Collections.unmodifiableMap(
                 new LinkedHashMap<String, String>(builder.picks));
+        this.pickImages = Collections.unmodifiableMap(
+                new LinkedHashMap<String, String>(builder.pickImages));
+        this.calibrationOverrides = Collections.unmodifiableMap(
+                new LinkedHashMap<String, CalibrationOverride>(
+                        builder.calibrationOverrides));
         this.scaleBarUm = builder.scaleBarUm;
         this.scaleBarCorner = builder.scaleBarCorner == null
                 ? PanelConfig.Position.BOTTOM_RIGHT : builder.scaleBarCorner;
@@ -92,9 +107,13 @@ public final class FPBParameters {
         this.writeSvg = builder.writeSvg;
         this.writeIndividualPanels = builder.writeIndividualPanels;
         this.writeRecords = builder.writeRecords;
+        this.writeAllProjectPng = builder.writeAllProjectPng;
+        this.writeAllProjectTiffStacks = builder.writeAllProjectTiffStacks;
         this.outputFolder = absolute(builder.outputFolder);
         this.figureName = cleanOrDefault(builder.figureName, "Figure");
         this.hideDisplay = builder.hideDisplay;
+        this.quickGrid = builder.quickGrid;
+        this.panelConfig = builder.panelConfig;
     }
 
     public static Builder builder(File folder) {
@@ -121,6 +140,8 @@ public final class FPBParameters {
                 .statisticCsv(statisticCsv)
                 .statisticColumn(statisticColumn)
                 .picks(picks)
+                .pickImages(pickImages)
+                .calibrationOverrides(calibrationOverrides)
                 .scaleBarUm(scaleBarUm)
                 .scaleBarCorner(scaleBarCorner)
                 .dpi(dpi)
@@ -130,9 +151,13 @@ public final class FPBParameters {
                 .writeSvg(writeSvg)
                 .writeIndividualPanels(writeIndividualPanels)
                 .writeRecords(writeRecords)
+                .writeAllProjectPng(writeAllProjectPng)
+                .writeAllProjectTiffStacks(writeAllProjectTiffStacks)
                 .outputFolder(outputFolder)
                 .figureName(figureName)
-                .hideDisplay(hideDisplay);
+                .hideDisplay(hideDisplay)
+                .quickGrid(quickGrid)
+                .panelConfig(panelConfig);
     }
 
     public File folder() { return folder; }
@@ -153,6 +178,10 @@ public final class FPBParameters {
     public File statisticCsv() { return statisticCsv; }
     public String statisticColumn() { return statisticColumn; }
     public Map<String, String> picks() { return picks; }
+    public Map<String, String> pickImages() { return pickImages; }
+    public Map<String, CalibrationOverride> calibrationOverrides() {
+        return calibrationOverrides;
+    }
     public double scaleBarUm() { return scaleBarUm; }
     public PanelConfig.Position scaleBarCorner() { return scaleBarCorner; }
     public int dpi() { return dpi; }
@@ -162,9 +191,13 @@ public final class FPBParameters {
     public boolean writeSvg() { return writeSvg; }
     public boolean writeIndividualPanels() { return writeIndividualPanels; }
     public boolean writeRecords() { return writeRecords; }
+    public boolean writeAllProjectPng() { return writeAllProjectPng; }
+    public boolean writeAllProjectTiffStacks() { return writeAllProjectTiffStacks; }
     public File outputFolder() { return outputFolder; }
     public String figureName() { return figureName; }
     public boolean hideDisplay() { return hideDisplay; }
+    public boolean quickGrid() { return quickGrid; }
+    public PanelConfig panelConfig() { return panelConfig; }
 
     static void validate(FPBParameters parameters) {
         if (parameters == null) {
@@ -174,22 +207,48 @@ public final class FPBParameters {
             throw new IllegalArgumentException("Input folder does not exist: "
                     + parameters.folder);
         }
-        if (parameters.metadataMode == MetadataMode.CSV
+        if (!parameters.quickGrid && parameters.metadataMode == MetadataMode.CSV
                 && (parameters.metadataCsv == null || !parameters.metadataCsv.isFile())) {
             throw new IllegalArgumentException("metadata_csv does not exist: "
                     + parameters.metadataCsv);
         }
-        if (parameters.metadataMode == MetadataMode.REGEX
+        if (!parameters.quickGrid && parameters.metadataMode == MetadataMode.REGEX
                 && !hasText(parameters.groupRegex)) {
             throw new IllegalArgumentException("group_regex is required for regex metadata.");
         }
-        if (parameters.channels.isEmpty()) {
+        if (!parameters.quickGrid && parameters.channels.isEmpty()) {
             throw new IllegalArgumentException("At least one channel with an explicit range is required.");
+        }
+        if (parameters.quickGrid && !parameters.channels.isEmpty()) {
+            throw new IllegalArgumentException("Quick Grid detects channels and derives "
+                    + "pooled cohort ranges automatically; do not supply channels.");
+        }
+        if (parameters.quickGrid && (!parameters.picks.isEmpty()
+                || !parameters.pickImages.isEmpty())) {
+            throw new IllegalArgumentException("Quick Grid exports every discovered image "
+                    + "without representative selection; do not supply picks.");
+        }
+        if (!parameters.writePng && !parameters.writeTiff && !parameters.writeSvg) {
+            throw new IllegalArgumentException("At least one assembled figure format is required.");
+        }
+        if (!Double.isFinite(parameters.scaleBarUm) || parameters.scaleBarUm <= 0.0) {
+            throw new IllegalArgumentException(
+                    "Scale-bar length must be finite and positive.");
+        }
+        if (!parameters.quickGrid && !BRIGHTEST_ONE_PERCENT_STATISTIC.equalsIgnoreCase(
+                parameters.statistic)) {
+            throw new IllegalArgumentException("Unsupported statistic: "
+                    + parameters.statistic + ". Expected "
+                    + BRIGHTEST_ONE_PERCENT_STATISTIC + ".");
         }
         Map<String, Boolean> names = new LinkedHashMap<String, Boolean>();
         for (Channel channel : parameters.channels) {
             if (channel == null) {
                 throw new IllegalArgumentException("Channel list contains null.");
+            }
+            if (isReservedChannelName(channel.name())) {
+                throw new IllegalArgumentException("Channel name '" + channel.name()
+                        + "' is reserved for the synthetic Merge panel.");
             }
             if (channel.range() == null || !channel.range().isValid()) {
                 throw new IllegalArgumentException("No display range locked for channel '"
@@ -205,6 +264,15 @@ public final class FPBParameters {
             throw new IllegalArgumentException("Output path is not a folder: "
                     + parameters.outputFolder);
         }
+    }
+
+    /** Whether a label is reserved for an app-generated channel panel. */
+    public static boolean isReservedChannelName(String channelName) {
+        return "Merge".equalsIgnoreCase(clean(channelName));
+    }
+
+    static String normalizeImageId(String sourceImageId) {
+        return clean(sourceImageId).replace('\\', '/');
     }
 
     private static File absolute(File file) {
@@ -263,10 +331,14 @@ public final class FPBParameters {
         private int sectionCapture = 0;
         private List<Channel> channels = new ArrayList<Channel>();
         private String zMode = "max";
-        private String statistic = "brightest_1pct";
+        private String statistic = BRIGHTEST_ONE_PERCENT_STATISTIC;
         private File statisticCsv;
         private String statisticColumn = "";
         private Map<String, String> picks = new LinkedHashMap<String, String>();
+        private Map<String, String> pickImages =
+                new LinkedHashMap<String, String>();
+        private Map<String, CalibrationOverride> calibrationOverrides =
+                new LinkedHashMap<String, CalibrationOverride>();
         private double scaleBarUm = 50.0;
         private PanelConfig.Position scaleBarCorner = PanelConfig.Position.BOTTOM_RIGHT;
         private int dpi = 300;
@@ -276,9 +348,13 @@ public final class FPBParameters {
         private boolean writeSvg = true;
         private boolean writeIndividualPanels = true;
         private boolean writeRecords = true;
+        private boolean writeAllProjectPng;
+        private boolean writeAllProjectTiffStacks;
         private File outputFolder;
         private String figureName = "Figure";
         private boolean hideDisplay;
+        private boolean quickGrid;
+        private PanelConfig panelConfig;
 
         public Builder folder(File folder) {
             this.folder = folder;
@@ -398,6 +474,54 @@ public final class FPBParameters {
             return this;
         }
 
+        /** Selects one exact metadata SourceImageId for a group. */
+        public Builder pickImage(String group, String sourceImageId) {
+            if (hasText(group) && hasText(sourceImageId)) {
+                pickImages.put(group.trim(), sourceImageId.trim().replace('\\', '/'));
+            }
+            return this;
+        }
+
+        public Builder pickImages(Map<String, String> pickImages) {
+            this.pickImages = new LinkedHashMap<String, String>();
+            if (pickImages != null) {
+                for (Map.Entry<String, String> entry : pickImages.entrySet()) {
+                    pickImage(entry.getKey(), entry.getValue());
+                }
+            }
+            return this;
+        }
+
+        /** Sets a user-entered calibration for one relative SourceImageId. */
+        public Builder calibration(String sourceImageId, double pixelWidthUm,
+                double pixelHeightUm) {
+            String id = normalizeImageId(sourceImageId);
+            if (id.isEmpty()) {
+                throw new IllegalArgumentException("sourceImageId is required.");
+            }
+            calibrationOverrides.put(id,
+                    new CalibrationOverride(pixelWidthUm, pixelHeightUm));
+            return this;
+        }
+
+        public Builder calibrationOverrides(
+                Map<String, CalibrationOverride> overrides) {
+            calibrationOverrides = new LinkedHashMap<String, CalibrationOverride>();
+            if (overrides != null) {
+                for (Map.Entry<String, CalibrationOverride> entry
+                        : overrides.entrySet()) {
+                    CalibrationOverride value = entry.getValue();
+                    if (value == null) {
+                        throw new IllegalArgumentException(
+                                "Calibration override contains null.");
+                    }
+                    calibration(entry.getKey(), value.pixelWidthUm(),
+                            value.pixelHeightUm());
+                }
+            }
+            return this;
+        }
+
         public Builder scaleBarUm(double scaleBarUm) {
             this.scaleBarUm = scaleBarUm;
             return this;
@@ -443,6 +567,17 @@ public final class FPBParameters {
             return this;
         }
 
+        public Builder writeAllProjectPng(boolean writeAllProjectPng) {
+            this.writeAllProjectPng = writeAllProjectPng;
+            return this;
+        }
+
+        public Builder writeAllProjectTiffStacks(
+                boolean writeAllProjectTiffStacks) {
+            this.writeAllProjectTiffStacks = writeAllProjectTiffStacks;
+            return this;
+        }
+
         public Builder outputFolder(File outputFolder) {
             this.outputFolder = outputFolder;
             return this;
@@ -455,6 +590,16 @@ public final class FPBParameters {
 
         public Builder hideDisplay(boolean hideDisplay) {
             this.hideDisplay = hideDisplay;
+            return this;
+        }
+
+        public Builder quickGrid(boolean quickGrid) {
+            this.quickGrid = quickGrid;
+            return this;
+        }
+
+        public Builder panelConfig(PanelConfig panelConfig) {
+            this.panelConfig = panelConfig;
             return this;
         }
 

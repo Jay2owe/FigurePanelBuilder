@@ -18,6 +18,7 @@ import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
@@ -83,6 +84,8 @@ public final class AnnotationEditor extends JDialog {
             new JComboBox<String>(new String[] {
                     "Top left", "Top right", "Bottom left", "Bottom right"
             });
+    private final JCheckBox snapToCorners =
+            new JCheckBox("Snap dragged objects to corners");
 
     private PanelConfig config;
     private PanelConfig result;
@@ -204,6 +207,11 @@ public final class AnnotationEditor extends JDialog {
         side.add(row("Custom um", customLength));
         side.add(row("Thickness", thickness));
         side.add(row("Corner", cornerBox));
+        side.add(Box.createVerticalStrut(10));
+        side.add(section("Canvas"));
+        snapToCorners.setAlignmentX(Component.LEFT_ALIGNMENT);
+        snapToCorners.setOpaque(false);
+        side.add(snapToCorners);
         side.add(Box.createVerticalGlue());
 
         labelModeBox.addActionListener(e -> updateConfigFromFields());
@@ -213,6 +221,7 @@ public final class AnnotationEditor extends JDialog {
         lengthBox.addActionListener(e -> updateConfigFromFields());
         customLength.addActionListener(e -> updateConfigFromFields());
         thickness.addActionListener(e -> updateConfigFromFields());
+        snapToCorners.addActionListener(e -> updateConfigFromFields());
         cornerBox.addActionListener(e -> {
             if (syncing) return;
             PanelConfig.Position position = parsePosition(selected(cornerBox));
@@ -238,7 +247,8 @@ public final class AnnotationEditor extends JDialog {
                         ? Color.BLACK : Color.WHITE)
                 .scaleBarLengthUm(length)
                 .scaleBarThicknessPx(parseInt(thickness,
-                        config.scaleBarThicknessPx()));
+                        config.scaleBarThicknessPx()))
+                .annotationSnapEnabled(snapToCorners.isSelected());
         config = builder.build();
         fireChanged();
     }
@@ -260,6 +270,7 @@ public final class AnnotationEditor extends JDialog {
             customLength.setText(formatNumber(config.scaleBarLengthUm()));
             thickness.setText(String.valueOf(config.scaleBarThicknessPx()));
             cornerBox.setSelectedItem(positionLabel(config.scaleBarPosition()));
+            snapToCorners.setSelected(config.annotationSnapEnabled());
         } finally {
             syncing = false;
         }
@@ -448,7 +459,8 @@ public final class AnnotationEditor extends JDialog {
         }
     }
 
-    private static PanelConfig maybeSnapLabel(PanelConfig config) {
+    static PanelConfig maybeSnapLabel(PanelConfig config) {
+        if (!config.annotationSnapEnabled()) return config;
         PanelConfig.Position position = snap(config.labelFracX(), config.labelFracY());
         if (position == null) return config;
         double[] frac = cornerFraction(position);
@@ -456,7 +468,8 @@ public final class AnnotationEditor extends JDialog {
                 .labelFracX(frac[0]).labelFracY(frac[1]).build();
     }
 
-    private static PanelConfig maybeSnapBar(PanelConfig config) {
+    static PanelConfig maybeSnapBar(PanelConfig config) {
+        if (!config.annotationSnapEnabled()) return config;
         PanelConfig.Position position = snap(config.scaleBarFracX(),
                 config.scaleBarFracY());
         if (position == null) return config;

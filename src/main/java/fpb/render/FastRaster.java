@@ -9,9 +9,11 @@
 package fpb.render;
 
 import fpb.io.HistogramCache;
+import fpb.util.CancellationCheck;
 
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
+import java.io.IOException;
 import java.util.List;
 
 /** LUT-based unsigned 16-bit renderer using direct TYPE_INT_RGB raster access. */
@@ -57,13 +59,27 @@ public final class FastRaster {
         boolean red = mask.red();
         boolean green = mask.green();
         boolean blue = mask.blue();
+        int colourMask = (red ? 0x010000 : 0)
+                | (green ? 0x000100 : 0)
+                | (blue ? 0x000001 : 0);
         int targetWidth = target.getWidth();
         int targetHeight = target.getHeight();
         int[] dst = pixels(target);
         if (sourceWidth == targetWidth && sourceHeight == targetHeight) {
-            for (int i = 0; i < dst.length; i++) {
-                int grey = lut[raw[i] & 0xFFFF] & 0xFF;
-                dst[i] = rgb(grey, red, green, blue);
+            int i = 0;
+            int unrolledEnd = dst.length - (dst.length % 8);
+            for (; i < unrolledEnd; i += 8) {
+                dst[i] = (lut[raw[i] & 0xFFFF] & 0xFF) * colourMask;
+                dst[i + 1] = (lut[raw[i + 1] & 0xFFFF] & 0xFF) * colourMask;
+                dst[i + 2] = (lut[raw[i + 2] & 0xFFFF] & 0xFF) * colourMask;
+                dst[i + 3] = (lut[raw[i + 3] & 0xFFFF] & 0xFF) * colourMask;
+                dst[i + 4] = (lut[raw[i + 4] & 0xFFFF] & 0xFF) * colourMask;
+                dst[i + 5] = (lut[raw[i + 5] & 0xFFFF] & 0xFF) * colourMask;
+                dst[i + 6] = (lut[raw[i + 6] & 0xFFFF] & 0xFF) * colourMask;
+                dst[i + 7] = (lut[raw[i + 7] & 0xFFFF] & 0xFF) * colourMask;
+            }
+            for (; i < dst.length; i++) {
+                dst[i] = (lut[raw[i] & 0xFFFF] & 0xFF) * colourMask;
             }
             return;
         }
@@ -74,13 +90,24 @@ public final class FastRaster {
             for (int x = 0; x < targetWidth; x++) {
                 int sourceX = x * sourceWidth / targetWidth;
                 int grey = lut[raw[sourceOffset + sourceX] & 0xFFFF] & 0xFF;
-                dst[out++] = rgb(grey, red, green, blue);
+                dst[out++] = grey * colourMask;
             }
         }
     }
 
     public static GreyPlane greyPlane(short[] raw, int sourceWidth, int sourceHeight,
             DisplayRange range, int targetWidth, int targetHeight) {
+        try {
+            return greyPlane(raw, sourceWidth, sourceHeight, range, targetWidth,
+                    targetHeight, CancellationCheck.NEVER_CANCELLED);
+        } catch (IOException impossible) {
+            throw new IllegalStateException(impossible);
+        }
+    }
+
+    static GreyPlane greyPlane(short[] raw, int sourceWidth, int sourceHeight,
+            DisplayRange range, int targetWidth, int targetHeight,
+            CancellationCheck cancelCheck) throws IOException {
         requirePlane(raw, sourceWidth, sourceHeight);
         requirePositive("targetWidth", targetWidth);
         requirePositive("targetHeight", targetHeight);
@@ -88,12 +115,14 @@ public final class FastRaster {
         byte[] grey = new byte[targetWidth * targetHeight];
         if (sourceWidth == targetWidth && sourceHeight == targetHeight) {
             for (int i = 0; i < grey.length; i++) {
+                if ((i & 0x3fff) == 0) checkCancelled(cancelCheck);
                 grey[i] = lut[raw[i] & 0xFFFF];
             }
             return new GreyPlane(targetWidth, targetHeight, grey, false);
         }
         int dst = 0;
         for (int y = 0; y < targetHeight; y++) {
+            checkCancelled(cancelCheck);
             int sourceY = y * sourceHeight / targetHeight;
             int sourceOffset = sourceY * sourceWidth;
             for (int x = 0; x < targetWidth; x++) {
@@ -105,6 +134,15 @@ public final class FastRaster {
     }
 
     public static BufferedImage colourize(GreyPlane grey, ChannelColour colour) {
+        try {
+            return colourize(grey, colour, CancellationCheck.NEVER_CANCELLED);
+        } catch (IOException impossible) {
+            throw new IllegalStateException(impossible);
+        }
+    }
+
+    static BufferedImage colourize(GreyPlane grey, ChannelColour colour,
+            CancellationCheck cancelCheck) throws IOException {
         if (grey == null) throw new IllegalArgumentException("grey plane must not be null");
         ChannelColour mask = colour == null ? ChannelColour.GREY : colour;
         BufferedImage image = new BufferedImage(grey.width(), grey.height(),
@@ -115,6 +153,7 @@ public final class FastRaster {
         boolean green = mask.green();
         boolean blue = mask.blue();
         for (int i = 0; i < dst.length; i++) {
+            if ((i & 0x3fff) == 0) checkCancelled(cancelCheck);
             dst[i] = rgb(values[i] & 0xFF, red, green, blue);
         }
         return image;
@@ -122,6 +161,16 @@ public final class FastRaster {
 
     public static BufferedImage merge(List<GreyPlane> greyPlanes,
             List<ChannelColour> colours) {
+        try {
+            return merge(greyPlanes, colours, CancellationCheck.NEVER_CANCELLED);
+        } catch (IOException impossible) {
+            throw new IllegalStateException(impossible);
+        }
+    }
+
+    static BufferedImage merge(List<GreyPlane> greyPlanes,
+            List<ChannelColour> colours, CancellationCheck cancelCheck)
+            throws IOException {
         if (greyPlanes == null || greyPlanes.isEmpty()) {
             throw new IllegalArgumentException("greyPlanes must not be empty");
         }
@@ -146,6 +195,7 @@ public final class FastRaster {
             boolean green = colour.green();
             boolean blue = colour.blue();
             for (int i = 0; i < dst.length; i++) {
+                if ((i & 0x3fff) == 0) checkCancelled(cancelCheck);
                 int next = rgb(values[i] & 0xFF, red, green, blue);
                 int r = Math.min(255, ((dst[i] >> 16) & 0xFF)
                         + ((next >> 16) & 0xFF));
@@ -156,6 +206,13 @@ public final class FastRaster {
             }
         }
         return image;
+    }
+
+    private static void checkCancelled(CancellationCheck cancelCheck)
+            throws IOException {
+        if (cancelCheck != null && cancelCheck.isCancelled()) {
+            throw new IOException("Export cancelled.");
+        }
     }
 
     static int[] pixels(BufferedImage image) {

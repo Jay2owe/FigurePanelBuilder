@@ -149,6 +149,24 @@ public class RenderThreadTest {
         assertEquals(0, grid.selectedRowIndex());
     }
 
+    @Test
+    public void rangeInvalidationClearsCachedRowsForLazyTabRerender()
+            throws Exception {
+        final PanelGrid grid = grid("DrugA");
+        final BufferedImage image = new BufferedImage(10, 10,
+                BufferedImage.TYPE_INT_RGB);
+        runOnEdt(new Runnable() {
+            @Override
+            public void run() {
+                grid.putRowImage(0, image);
+                grid.clearRenderedRows();
+            }
+        });
+
+        assertEquals(0, grid.renderedRowCountForTest());
+        assertEquals(3, grid.rowCount());
+    }
+
     private static PanelGrid grid(String group) {
         List<RowImage.SubjectRow> rows = new ArrayList<RowImage.SubjectRow>();
         rows.add(new RowImage.SubjectRow(group, "S1", 0, true));

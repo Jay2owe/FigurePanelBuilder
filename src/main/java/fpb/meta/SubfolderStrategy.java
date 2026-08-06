@@ -21,7 +21,8 @@ public final class SubfolderStrategy implements LabelStrategy {
                 row.clearLabels("Image has no containing folder name");
             } else {
                 row.setLabels(parent.getName(),
-                        MetadataTable.basenameWithoutExtension(row.file), "");
+                        row.source.isSeries() ? row.source.seriesLabel()
+                        : MetadataTable.basenameWithoutExtension(row.file), "");
             }
         }
     }

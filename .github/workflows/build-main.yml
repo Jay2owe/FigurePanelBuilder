@@ -3,6 +3,11 @@ name: build-main
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -20,9 +25,9 @@ jobs:
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2-
       - name: Build
-        run: bash mvnw clean package -Denforcer.skip=true
+        run: bash mvnw clean package
       - name: Upload jar
         uses: actions/upload-artifact@v4
         with:
           name: FigurePanelBuilder-jar
-          path: target/FigurePanelBuilder-*.jar
+          path: target/FigurePanelBuilder-0.1.0.jar

@@ -8,11 +8,14 @@
  */
 package fpb.meta;
 
+import fpb.io.ImageSource;
+
 import java.io.File;
 
 /** One source image and its editable metadata labels. */
 public final class MetadataRow {
 
+    public final ImageSource source;
     public final File file;
     public String group;
     public String subject;
@@ -20,12 +23,22 @@ public final class MetadataRow {
     public String unassignedReason;
 
     public MetadataRow(File file) {
-        this(file, "", "", "");
+        this(ImageSource.file(file), "", "", "");
     }
 
     public MetadataRow(File file, String group, String subject, String section) {
-        if (file == null) throw new IllegalArgumentException("file must not be null");
-        this.file = file.getAbsoluteFile();
+        this(ImageSource.file(file), group, subject, section);
+    }
+
+    public MetadataRow(ImageSource source) {
+        this(source, "", "", "");
+    }
+
+    public MetadataRow(ImageSource source, String group, String subject,
+            String section) {
+        if (source == null) throw new IllegalArgumentException("source must not be null");
+        this.source = source;
+        this.file = source.file();
         this.group = clean(group);
         this.subject = clean(subject);
         this.section = clean(section);

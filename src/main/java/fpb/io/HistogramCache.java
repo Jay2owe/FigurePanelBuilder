@@ -9,6 +9,7 @@
 package fpb.io;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -89,21 +90,44 @@ public final class HistogramCache {
         return counts;
     }
 
+    static int[] countsFromPlane(short[] fullResolutionPlane,
+            ImageLoader.CancelCheck cancelCheck) throws IOException {
+        if (fullResolutionPlane == null) {
+            throw new IllegalArgumentException("fullResolutionPlane must not be null");
+        }
+        int[] counts = new int[BIN_COUNT];
+        for (int i = 0; i < fullResolutionPlane.length; i++) {
+            if ((i & 0x3fff) == 0) ImageLoader.checkCancelled(cancelCheck);
+            counts[fullResolutionPlane[i] & 0xFFFF]++;
+        }
+        return counts;
+    }
+
     public static final class ImageHistograms {
+        private final ImageSource source;
         private final File sourceFile;
         private final List<Histogram> histograms;
 
         ImageHistograms(File sourceFile, List<Histogram> histograms) {
-            if (sourceFile == null) throw new IllegalArgumentException("sourceFile is null");
+            this(ImageSource.file(sourceFile), histograms);
+        }
+
+        ImageHistograms(ImageSource source, List<Histogram> histograms) {
+            if (source == null) throw new IllegalArgumentException("source is null");
             if (histograms == null || histograms.isEmpty()) {
                 throw new IllegalArgumentException("histograms must not be empty");
             }
-            this.sourceFile = sourceFile.getAbsoluteFile();
+            this.source = source;
+            this.sourceFile = source.file();
             this.histograms = Collections.unmodifiableList(new ArrayList<Histogram>(histograms));
         }
 
         public File sourceFile() {
             return sourceFile;
+        }
+
+        public ImageSource source() {
+            return source;
         }
 
         public int channelCount() {

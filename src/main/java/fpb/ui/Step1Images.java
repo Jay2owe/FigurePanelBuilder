@@ -14,36 +14,32 @@ import fpb.meta.MetadataTableIO;
 import fpb.meta.RegexStrategy;
 import fpb.meta.SubfolderStrategy;
 import fpb.meta.TokenStrategy;
+import fpb.io.ImageLoader;
+import fpb.io.ImageSource;
 
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
 import java.awt.GridLayout;
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
 import javax.swing.JButton;
+import javax.swing.JComboBox;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JRadioButton;
+import javax.swing.SwingWorker;
 import javax.swing.JTextField;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
 /** First wizard step: choose images and label group/subject/section metadata. */
 public final class Step1Images implements WizardStep {
-
-    private static final List<String> IMAGE_EXTENSIONS = Collections.unmodifiableList(
-            Arrays.asList("tif", "tiff", "png", "jpg", "jpeg", "gif", "bmp",
-                    "lif", "czi", "nd2", "oib", "oif", "lsm"));
 
     private final FPBWizard.Context context;
     private final Runnable quickGridAction;
@@ -56,7 +52,11 @@ public final class Step1Images implements WizardStep {
     private final TokenPicker tokenPicker;
     private final MetadataTablePanel tablePanel;
     private final JLabel summaryLabel;
+    private final JButton retryFolderButton;
     private boolean loading;
+    private File retryFolder;
+    private boolean retryRecursiveFallback;
+    private SwingWorker<FolderScan, Void> folderWorker;
 
     public Step1Images(FPBWizard.Context context, Runnable quickGridAction) {
         this.context = context;
@@ -84,7 +84,9 @@ public final class Step1Images implements WizardStep {
         recursiveToggle.addChangeListener(new Runnable() {
             @Override
             public void run() {
-                if (!loading && context.folder != null) loadFolder(context.folder, false);
+                if (!loading && context.folder != null) {
+                    loadFolderAsync(context.folder, false);
+                }
             }
         });
         folderRow.add(recursiveToggle);
@@ -143,17 +145,61 @@ public final class Step1Images implements WizardStep {
         panel.add(top, BorderLayout.NORTH);
 
         JPanel centre = new JPanel(new BorderLayout(6, 6));
+        JPanel summaryRow = new JPanel(new BorderLayout(8, 0));
         summaryLabel = new JLabel("Choose a folder to populate the table.");
-        centre.add(summaryLabel, BorderLayout.NORTH);
+        summaryRow.add(summaryLabel, BorderLayout.CENTER);
+        retryFolderButton = new JButton("Retry");
+        retryFolderButton.setVisible(false);
+        retryFolderButton.addActionListener(new java.awt.event.ActionListener() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent event) {
+                if (retryFolder != null) {
+                    loadFolderAsync(retryFolder, retryRecursiveFallback);
+                }
+            }
+        });
+        summaryRow.add(retryFolderButton, BorderLayout.EAST);
+        centre.add(summaryRow, BorderLayout.NORTH);
         tablePanel = new MetadataTablePanel();
         tablePanel.setEditListener(new Runnable() {
             @Override
             public void run() {
                 context.tableHandEdited = true;
+                context.quickGridRequested = false;
+                context.invalidateGuidedDownstream(0);
                 updateSummary();
             }
         });
         centre.add(tablePanel, BorderLayout.CENTER);
+
+        JPanel bulkRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        bulkRow.add(new JLabel("Double-click a cell to edit, or bulk edit"));
+        final JComboBox<String> bulkField = new JComboBox<String>(new String[] {
+                "Group", "Subject", "Section"
+        });
+        bulkRow.add(bulkField);
+        final JTextField bulkValue = new JTextField(16);
+        bulkRow.add(bulkValue);
+        final JComboBox<String> bulkScope = new JComboBox<String>(new String[] {
+                "Selected rows", "All rows"
+        });
+        bulkRow.add(bulkScope);
+        JButton applyBulk = new JButton("Apply");
+        applyBulk.addActionListener(new java.awt.event.ActionListener() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent event) {
+                MetadataTablePanel.MetadataField field =
+                        MetadataTablePanel.MetadataField.values()[
+                                bulkField.getSelectedIndex()];
+                int changed = applyBulkMetadata(field, bulkValue.getText(),
+                        bulkScope.getSelectedIndex() == 1);
+                if (changed == 0) {
+                    showMessage("Select one or more table rows, or choose All rows.");
+                }
+            }
+        });
+        bulkRow.add(applyBulk);
+        centre.add(bulkRow, BorderLayout.SOUTH);
         panel.add(centre, BorderLayout.CENTER);
 
         JPanel bottom = new JPanel(new BorderLayout());
@@ -204,6 +250,11 @@ public final class Step1Images implements WizardStep {
 
     @Override
     public void onShow() {
+        if (context.quickGridRequested && context.folder != null) {
+            context.quickGridRequested = false;
+            context.invalidateGuidedDownstream(0);
+            loadFolder(context.folder, true);
+        }
         if (context.metadataTable != null) {
             tablePanel.setMetadataTable(context.metadataTable);
             updateSummary();
@@ -212,7 +263,9 @@ public final class Step1Images implements WizardStep {
 
     @Override
     public boolean canAdvance() {
-        return context.metadataTable != null && context.metadataTable.fileCount() > 0;
+        return !loading && tablePanel.commitActiveEdit()
+                && context.metadataTable != null && context.metadataTable.fileCount() > 0
+                && context.metadataTable.unassignedCount() == 0;
     }
 
     public void chooseFolder(File folder) {
@@ -241,19 +294,36 @@ public final class Step1Images implements WizardStep {
         return tablePanel;
     }
 
+    public int applyBulkMetadata(MetadataTablePanel.MetadataField field,
+            String value, boolean allRows) {
+        return tablePanel.applyBulkValue(field, value, allRows);
+    }
+
     public void importCsv(File csvFile) throws IOException {
+        if (!tablePanel.commitActiveEdit()) {
+            throw new IOException("Finish the active metadata edit before importing CSV.");
+        }
         if (context.metadataTable == null) {
             throw new IOException("Choose an image folder before importing CSV metadata.");
         }
-        MetadataTableIO.importCsv(context.metadataTable, csvFile);
+        MetadataTableIO.ImportResult imported =
+                MetadataTableIO.importCsv(context.metadataTable, csvFile);
+        if (!imported.isComplete()) {
+            throw new IOException(imported.problemSummary());
+        }
         csvStrategy.setSelected(true);
         tokenPicker.setEnabled(false);
         context.tableHandEdited = false;
+        context.quickGridRequested = false;
+        context.invalidateGuidedDownstream(0);
         tablePanel.setMetadataTable(context.metadataTable);
         updateSummary();
     }
 
     public void exportCsv(File csvFile) throws IOException {
+        if (!tablePanel.commitActiveEdit()) {
+            throw new IOException("Finish the active metadata edit before exporting CSV.");
+        }
         if (context.metadataTable == null) {
             throw new IOException("Choose an image folder before exporting CSV metadata.");
         }
@@ -265,7 +335,7 @@ public final class Step1Images implements WizardStep {
         chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
         if (context.folder != null) chooser.setCurrentDirectory(context.folder);
         if (chooser.showOpenDialog(panel) == JFileChooser.APPROVE_OPTION) {
-            chooseFolder(chooser.getSelectedFile());
+            loadFolderAsync(chooser.getSelectedFile(), true);
         }
     }
 
@@ -299,36 +369,167 @@ public final class Step1Images implements WizardStep {
 
     private void loadFolder(File folder, boolean allowRecursiveFallback) {
         if (folder == null) return;
+        context.quickGridRequested = false;
+        context.invalidateGuidedDownstream(0);
         loading = true;
         try {
             File root = folder.getAbsoluteFile();
+            retryFolder = root;
+            retryRecursiveFallback = allowRecursiveFallback;
             context.folder = root;
             folderField.setText(root.getAbsolutePath());
-            context.recursive = recursiveToggle.isSelected();
-            List<File> files = discoverImages(root, context.recursive);
-            if (files.isEmpty() && allowRecursiveFallback && !context.recursive) {
-                List<File> recursiveFiles = discoverImages(root, true);
-                if (!recursiveFiles.isEmpty()) {
-                    recursiveToggle.setSelected(true);
-                    context.recursive = true;
-                    files = recursiveFiles;
-                }
-            }
-            if (files.isEmpty()) {
-                context.metadataTable = MetadataTable.empty(root, files);
-                tablePanel.setMetadataTable(context.metadataTable);
-                updateSummary();
-                return;
-            }
-            LabelStrategy strategy = MetadataTable.suggest(root, files);
-            context.metadataTable = MetadataTable.fromFiles(root, files, strategy);
-            selectStrategy(strategy);
-            tablePanel.setMetadataTable(context.metadataTable);
-            updateSummary();
+            applyFolderScan(scanFolder(root, recursiveToggle.isSelected(),
+                    allowRecursiveFallback));
         } catch (IOException failure) {
-            showMessage(failure.getMessage());
+            showFolderFailure(failure);
         } finally {
             loading = false;
+        }
+    }
+
+    private void loadFolderAsync(File folder, boolean allowRecursiveFallback) {
+        if (folder == null) return;
+        if (folderWorker != null && !folderWorker.isDone()) {
+            folderWorker.cancel(true);
+        }
+        context.imagePreloader.cancel();
+        final File root = folder.getAbsoluteFile();
+        final boolean recursive = recursiveToggle.isSelected();
+        final boolean fallback = allowRecursiveFallback;
+        retryFolder = root;
+        retryRecursiveFallback = fallback;
+        context.quickGridRequested = false;
+        context.invalidateGuidedDownstream(0);
+        context.folder = root;
+        context.recursive = recursive;
+        context.metadataTable = null;
+        folderField.setText(root.getAbsolutePath());
+        loading = true;
+        retryFolderButton.setVisible(false);
+        summaryLabel.setText("<html><b>Checking images...</b> Online-only "
+                + "files will be requested from the cloud provider before they "
+                + "are opened.</html>");
+
+        final SwingWorker<FolderScan, Void> worker =
+                new SwingWorker<FolderScan, Void>() {
+                    @Override
+                    protected FolderScan doInBackground() throws Exception {
+                        return scanFolder(root, recursive, fallback);
+                    }
+
+                    @Override
+                    protected void done() {
+                        if (folderWorker != this) return;
+                        try {
+                            if (!isCancelled()) {
+                                applyFolderScan(get());
+                                startPreviewPreload();
+                            }
+                        } catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                            showFolderFailure(new IOException(
+                                    "Folder scan was interrupted.", interrupted));
+                        } catch (IOException failure) {
+                            showFolderFailure(failure);
+                        } catch (java.util.concurrent.ExecutionException failure) {
+                            Throwable cause = failure.getCause();
+                            showFolderFailure(cause instanceof IOException
+                                    ? (IOException) cause
+                                    : new IOException("Could not scan the image folder.",
+                                            cause));
+                        } finally {
+                            loading = false;
+                        }
+                    }
+                };
+        folderWorker = worker;
+        worker.execute();
+    }
+
+    private static FolderScan scanFolder(File root, boolean recursive,
+            boolean allowRecursiveFallback) throws IOException {
+        List<ImageSource> sources = ImageLoader.discoverImageSources(root, recursive);
+        boolean effectiveRecursive = recursive;
+        if (sources.isEmpty() && allowRecursiveFallback && !recursive) {
+            List<ImageSource> recursiveSources = ImageLoader.discoverImageSources(
+                    root, true);
+            if (!recursiveSources.isEmpty()) {
+                sources = recursiveSources;
+                effectiveRecursive = true;
+            }
+        }
+        return new FolderScan(root, effectiveRecursive, sources);
+    }
+
+    private void applyFolderScan(FolderScan scan) throws IOException {
+        context.folder = scan.root;
+        context.recursive = scan.recursive;
+        recursiveToggle.setSelected(scan.recursive);
+        retryFolderButton.setVisible(false);
+        if (scan.sources.isEmpty()) {
+            context.metadataTable = MetadataTable.emptySources(scan.root,
+                    scan.sources);
+            tablePanel.setMetadataTable(context.metadataTable);
+            updateSummary();
+            return;
+        }
+        LabelStrategy strategy = MetadataTable.suggestSources(scan.root,
+                scan.sources);
+        context.metadataTable = MetadataTable.fromSources(scan.root, scan.sources,
+                strategy);
+        selectStrategy(strategy);
+        tablePanel.setMetadataTable(context.metadataTable);
+        updateSummary();
+    }
+
+    private void showFolderFailure(IOException failure) {
+        context.imagePreloader.cancel();
+        File root = context.folder == null ? retryFolder : context.folder;
+        if (root != null) {
+            context.metadataTable = new MetadataTable(root,
+                    Collections.<fpb.meta.MetadataRow>emptyList());
+            tablePanel.setMetadataTable(context.metadataTable);
+        } else {
+            context.metadataTable = null;
+        }
+        String explanation = failure.getMessage() == null
+                ? "The image folder could not be read."
+                : failure.getMessage();
+        summaryLabel.setText("<html><body style='width: 690px'><b>Could not "
+                + "open the images.</b> " + escapeHtml(explanation)
+                + "<br>After the download completes, click Retry. You can also "
+                + "use Browse to choose another folder.</body></html>");
+        retryFolderButton.setVisible(retryFolder != null);
+    }
+
+    private void startPreviewPreload() {
+        if (context.metadataTable == null || context.metadataTable.rows().isEmpty()) {
+            return;
+        }
+        final List<ImageSource> sources = new java.util.ArrayList<ImageSource>();
+        for (fpb.meta.MetadataRow row : context.metadataTable.rows()) {
+            sources.add(row.source);
+        }
+        final ImageLoader.ZMode zMode = ImageLoader.ZMode.fromString(
+                context.zHandling);
+        context.imagePreloader.preload(sources, zMode, null);
+    }
+
+    private static String escapeHtml(String value) {
+        if (value == null) return "";
+        return value.replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;").replace("\"", "&quot;");
+    }
+
+    private static final class FolderScan {
+        final File root;
+        final boolean recursive;
+        final List<ImageSource> sources;
+
+        FolderScan(File root, boolean recursive, List<ImageSource> sources) {
+            this.root = root;
+            this.recursive = recursive;
+            this.sources = sources;
         }
     }
 
@@ -341,11 +542,11 @@ public final class Step1Images implements WizardStep {
             } else {
                 filenameStrategy.setSelected(true);
                 tokenPicker.setEnabled(true);
-                File sample = context.metadataTable == null
+                ImageSource sample = context.metadataTable == null
                         || context.metadataTable.rows().isEmpty()
                         ? null
-                        : context.metadataTable.rows().get(0).file;
-                tokenPicker.setSampleFile(sample, strategy instanceof TokenStrategy
+                        : context.metadataTable.rows().get(0).source;
+                tokenPicker.setSampleSource(sample, strategy instanceof TokenStrategy
                         ? (TokenStrategy) strategy
                         : null);
             }
@@ -366,7 +567,13 @@ public final class Step1Images implements WizardStep {
 
     private void applyStrategy(LabelStrategy strategy) {
         if (context.metadataTable == null) return;
+        if (!tablePanel.commitActiveEdit()) {
+            showMessage("Finish the active metadata edit before changing label strategy.");
+            return;
+        }
         strategy.apply(context.metadataTable);
+        context.quickGridRequested = false;
+        context.invalidateGuidedDownstream(0);
         tablePanel.setMetadataTable(context.metadataTable);
         updateSummary();
     }
@@ -418,47 +625,4 @@ public final class Step1Images implements WizardStep {
                 JOptionPane.INFORMATION_MESSAGE);
     }
 
-    private static List<File> discoverImages(File folder, boolean recursive) throws IOException {
-        if (folder == null || !folder.isDirectory()) {
-            throw new IOException("Folder does not exist: " + folder);
-        }
-        List<File> files = new ArrayList<File>();
-        collectImages(folder.getAbsoluteFile(), recursive, files);
-        Collections.sort(files, new Comparator<File>() {
-            @Override
-            public int compare(File left, File right) {
-                int byIgnoreCase = left.getAbsolutePath().compareToIgnoreCase(
-                        right.getAbsolutePath());
-                if (byIgnoreCase != 0) return byIgnoreCase;
-                return left.getAbsolutePath().compareTo(right.getAbsolutePath());
-            }
-        });
-        return files;
-    }
-
-    private static void collectImages(File folder, boolean recursive, List<File> files) {
-        File[] children = folder.listFiles();
-        if (children == null) return;
-        Arrays.sort(children, new Comparator<File>() {
-            @Override
-            public int compare(File left, File right) {
-                return left.getName().compareToIgnoreCase(right.getName());
-            }
-        });
-        for (int i = 0; i < children.length; i++) {
-            File child = children[i];
-            if (child.isDirectory()) {
-                if (recursive) collectImages(child, true, files);
-            } else if (isSupportedImage(child)) {
-                files.add(child.getAbsoluteFile());
-            }
-        }
-    }
-
-    private static boolean isSupportedImage(File file) {
-        String name = file.getName();
-        int dot = name.lastIndexOf('.');
-        if (dot < 0 || dot == name.length() - 1) return false;
-        return IMAGE_EXTENSIONS.contains(name.substring(dot + 1).toLowerCase(Locale.ROOT));
-    }
 }
