@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this plugin, please cite it as below."
+type: software
+title: "Figure Panel Builder"
+abstract: >-
+  ImageJ/Fiji plugin for building publication figure panels from folders of
+  multi-channel microscopy images with cohort-locked display ranges and a
+  reproducible record of panel selection and rendering.
+authors:
+  - given-names: Jamie
+    family-names: Malcolm
+    orcid: "https://orcid.org/0009-0008-3862-2776"
+    affiliation: "UK Dementia Research Institute at Imperial College London"
+    email: jamiemalcolm12@gmail.com
+repository-code: "https://github.com/Jay2owe/FigurePanelBuilder"
+url: "https://github.com/Jay2owe/FigurePanelBuilder"
+license: BSD-3-Clause
+version: "0.1.0"
+date-released: "2026-08-06"
+keywords:
+  - imagej
+  - fiji
+  - microscopy
+  - figure-panels
+  - reproducibility
