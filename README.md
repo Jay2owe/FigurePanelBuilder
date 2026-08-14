@@ -1,5 +1,7 @@
 # Figure Panel Builder
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21933265.svg)](https://doi.org/10.5281/zenodo.21933265)
+
 Figure Panel Builder is an ImageJ/Fiji plugin for building publication figure panels from a folder
 of multi-channel microscopy images. It applies one locked display range per channel across all
 compared images, supports representative section selection from editable group/subject/section
@@ -109,3 +111,6 @@ The project targets Java 8 bytecode for Fiji compatibility. The only compile-sco
 
 Figure Panel Builder is released under the [BSD 3-Clause License](LICENSE). Citation metadata is
 provided in [CITATION.cff](CITATION.cff).
+
+> Malcolm, J. (2026). *Figure Panel Builder* (Version 0.1.0)
+> [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.21933266
