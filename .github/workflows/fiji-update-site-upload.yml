@@ -39,9 +39,9 @@ jobs:
       IMAGEJ_UPLOAD_USER: ${{ secrets.IMAGEJ_UPLOAD_USER }}
       IMAGEJ_UPLOAD_PASSWORD: ${{ secrets.IMAGEJ_UPLOAD_PASSWORD }}
       DEFAULT_UPLOAD_USER: ""
-      ARTIFACT_GLOB: "target/FigurePanelBuilder-0.1.0.jar"
-      RELEASE_ASSET_URL: "https://github.com/Jay2owe/FigurePanelBuilder/releases/download/v0.1.0/FigurePanelBuilder-0.1.0.jar"
-      RELEASE_ASSET_SHA256: "d87ed272ce4282770a60c47b298da0a8796184405d47440f08761beeb3d4cc13"
+      ARTIFACT_GLOB: "target/FigurePanelBuilder-0.1.1.jar"
+      RELEASE_ASSET_URL: "https://github.com/Jay2owe/FigurePanelBuilder/releases/download/v0.1.1/FigurePanelBuilder-0.1.1.jar"
+      RELEASE_ASSET_SHA256: "af40e217b9ca5cc48b28338535ed23bef9451caa824c3d0d58c808040bd02008"
       INSTALL_DIR: "plugins"
       ARTIFACT_NAME: ""
       REPLACE_GLOB: "plugins/FigurePanelBuilder-*.jar"
@@ -216,7 +216,7 @@ jobs:
         with:
           name: FigurePanelBuilder-uploaded-artifact
           path: |
-            target/FigurePanelBuilder-0.1.0.jar
+            ${{ env.ARTIFACT_GLOB }}
             !target/*-sources.jar
             !target/*-tests.jar
           if-no-files-found: error
