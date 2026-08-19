@@ -55,7 +55,7 @@ an ImageJ or Bio-Formats open call already in progress must return before cancel
 ## Use In Fiji
 
 Figure Panel Builder requires [Fiji](https://fiji.sc/) with Bio-Formats. Download
-`FigurePanelBuilder-0.1.0.jar` from the
+`FigurePanelBuilder-0.1.1.jar` from the
 [latest GitHub release](https://github.com/Jay2owe/FigurePanelBuilder/releases/latest), copy it into
 Fiji's `plugins` folder, restart Fiji, then run
 `Plugins > Figure Panel Builder`. The guided wizard supports folder loading, metadata labelling,

@@ -109,7 +109,7 @@ public final class Step2Channels implements WizardStep {
         JPanel bottom = new JPanel(new GridLayout(0, 1, 4, 4));
         JPanel zRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         zRow.add(new JLabel("Z handling"));
-        zHandling = new JComboBox<String>(Z_HANDLING);
+        zHandling = new FitComboBox<String>(Z_HANDLING);
         zHandling.setSelectedItem(context.zHandling);
         zHandling.addActionListener(new java.awt.event.ActionListener() {
             @Override
@@ -124,7 +124,7 @@ public final class Step2Channels implements WizardStep {
 
         JPanel statisticRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         statisticRow.add(new JLabel("Guiding statistic"));
-        statisticSource = new JComboBox<String>(new String[] {
+        statisticSource = new FitComboBox<String>(new String[] {
                 "Built-in brightest 1%", "Numeric CSV column"
         });
         statisticSource.setSelectedIndex(context.statisticCsv == null ? 0 : 1);
@@ -448,7 +448,7 @@ public final class Step2Channels implements WizardStep {
                 }
             });
             row.add(name);
-            final JComboBox<String> colour = new JComboBox<String>(COLOUR_NAMES);
+            final JComboBox<String> colour = new FitComboBox<String>(COLOUR_NAMES);
             colour.setSelectedItem(titleCase(setting.colour.name()));
             colour.addActionListener(new java.awt.event.ActionListener() {
                 @Override

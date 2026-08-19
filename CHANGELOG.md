@@ -4,6 +4,14 @@ All notable changes to Figure Panel Builder will be documented here. The format 
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] - 2026-08-19
+
+### Fixed
+
+- Drop-down values are no longer replaced by an ellipsis under Windows display scaling. Every combo
+  box now reserves room for its widest entry, so "Export scale" reads `1x` rather than `...`, and
+  "Magenta", "Maximum projection" and "Bottom right" are readable in full.
+
 ## [0.1.0] - 2026-08-06
 
 ### Added

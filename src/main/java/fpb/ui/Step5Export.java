@@ -99,7 +99,7 @@ public final class Step5Export implements WizardStep, AutoCloseable {
     private final JTextField outputFolder = new JTextField(32);
     private final JTextField dpi = new JTextField("300", 5);
     private final JComboBox<String> exportScale =
-            new JComboBox<String>(new String[] { "1x", "2x", "3x", "4x" });
+            new FitComboBox<String>(new String[] { "1x", "2x", "3x", "4x" });
     private final JCheckBox png = new JCheckBox("PNG", true);
     private final JCheckBox tiff = new JCheckBox("TIFF", true);
     private final JCheckBox svg = new JCheckBox("SVG", true);

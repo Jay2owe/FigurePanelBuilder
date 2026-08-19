@@ -11,6 +11,7 @@ package fpb.ui.chooser;
 import fpb.io.HistogramCache;
 import fpb.io.PlaneCache;
 import fpb.render.FPBRenderer;
+import fpb.ui.FitComboBox;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -45,7 +46,7 @@ public final class PicksStrip extends JPanel {
     private static final Color TEXT = new Color(42, 47, 53);
     private static final Color MUTED = new Color(98, 106, 114);
 
-    private final JComboBox<String> viewMode = new JComboBox<String>();
+    private final JComboBox<String> viewMode = new FitComboBox<String>();
     private final JPanel grid = new JPanel(new GridLayout(0, 2, 8, 8));
     private final Map<String, PickCell> cellsByGroup =
             new LinkedHashMap<String, PickCell>();

@@ -14,7 +14,7 @@
 
 	<groupId>io.github.jay2owe</groupId>
 	<artifactId>FigurePanelBuilder</artifactId>
-	<version>0.1.0</version>
+	<version>0.1.1</version>
 
 	<name>Figure Panel Builder</name>
 	<description>Build publication figure panels from a folder of multi-channel images.</description>

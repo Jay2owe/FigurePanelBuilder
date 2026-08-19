@@ -45,7 +45,7 @@ public final class TokenPicker extends JPanel {
         top.setOpaque(false);
         splitLabel = new JLabel("Split filename on");
         top.add(splitLabel);
-        separatorChoice = new JComboBox<String>(new String[] { "_", "-", ".", "space" });
+        separatorChoice = new FitComboBox<String>(new String[] { "_", "-", ".", "space" });
         separatorChoice.addActionListener(new java.awt.event.ActionListener() {
             @Override
             public void actionPerformed(java.awt.event.ActionEvent event) {
@@ -148,7 +148,7 @@ public final class TokenPicker extends JPanel {
             tokenPanel.setOpaque(false);
             tokenPanel.setLayout(new BoxLayout(tokenPanel, BoxLayout.Y_AXIS));
             tokenPanel.add(new JLabel(tokens[i]));
-            JComboBox<String> fieldChoice = new JComboBox<String>(
+            JComboBox<String> fieldChoice = new FitComboBox<String>(
                     new String[] { GROUP, SUBJECT, SECTION, IGNORE });
             TokenStrategy.Field field = assignment.get(Integer.valueOf(i));
             fieldChoice.setSelectedItem(labelFor(field == null

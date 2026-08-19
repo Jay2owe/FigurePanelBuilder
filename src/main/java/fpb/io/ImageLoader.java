@@ -171,7 +171,7 @@ public final class ImageLoader {
             ProgressCallback callback) throws IOException {
         if (sources == null) throw new IOException("image source list is null");
         if (sources.size() > MAX_IMAGES) {
-            throw new IOException("Figure Panel Builder v0.1.0 handles up to 100 images per run; "
+            throw new IOException("Figure Panel Builder v0.1.1 handles up to 100 images per run; "
                     + "this folder has " + sources.size() + ".");
         }
         ProgressCallback progress = callback == null ? ProgressCallback.NONE : callback;

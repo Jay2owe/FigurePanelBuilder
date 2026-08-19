@@ -12,6 +12,7 @@ import fpb.figure.PanelConfig;
 import fpb.figure.PanelRecord;
 import fpb.figure.PanelWriter;
 import fpb.figure.ScaleBar;
+import fpb.ui.FitComboBox;
 
 import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
@@ -70,18 +71,18 @@ public final class AnnotationEditor extends JDialog {
     private final BufferedImage sourceImage;
     private final Canvas canvas = new Canvas();
     private final JComboBox<String> labelModeBox =
-            new JComboBox<String>(new String[] {
+            new FitComboBox<String>(new String[] {
                     "None", "Channel name", "Image name", "Group + subject", "Custom"
             });
     private final JTextField customLabel = field("", 10);
     private final JTextField fontSize = field("18", 4);
     private final JComboBox<String> colourBox =
-            new JComboBox<String>(new String[] { "White", "Black" });
-    private final JComboBox<String> lengthBox = new JComboBox<String>();
+            new FitComboBox<String>(new String[] { "White", "Black" });
+    private final JComboBox<String> lengthBox = new FitComboBox<String>();
     private final JTextField customLength = field("100", 5);
     private final JTextField thickness = field("6", 4);
     private final JComboBox<String> cornerBox =
-            new JComboBox<String>(new String[] {
+            new FitComboBox<String>(new String[] {
                     "Top left", "Top right", "Bottom left", "Bottom right"
             });
     private final JCheckBox snapToCorners =

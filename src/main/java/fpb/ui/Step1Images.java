@@ -174,13 +174,13 @@ public final class Step1Images implements WizardStep {
 
         JPanel bulkRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         bulkRow.add(new JLabel("Double-click a cell to edit, or bulk edit"));
-        final JComboBox<String> bulkField = new JComboBox<String>(new String[] {
+        final JComboBox<String> bulkField = new FitComboBox<String>(new String[] {
                 "Group", "Subject", "Section"
         });
         bulkRow.add(bulkField);
         final JTextField bulkValue = new JTextField(16);
         bulkRow.add(bulkValue);
-        final JComboBox<String> bulkScope = new JComboBox<String>(new String[] {
+        final JComboBox<String> bulkScope = new FitComboBox<String>(new String[] {
                 "Selected rows", "All rows"
         });
         bulkRow.add(bulkScope);

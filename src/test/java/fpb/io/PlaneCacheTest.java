@@ -105,7 +105,7 @@ public class PlaneCacheTest {
         try {
             new ImageLoader(150, 1).loadFiles(files, ProgressCallback.NONE);
         } catch (java.io.IOException expected) {
-            assertEquals("Figure Panel Builder v0.1.0 handles up to 100 images per run; "
+            assertEquals("Figure Panel Builder v0.1.1 handles up to 100 images per run; "
                     + "this folder has 101.", expected.getMessage());
             return;
         }

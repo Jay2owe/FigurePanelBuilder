@@ -17,6 +17,7 @@ import fpb.figure.PanelWriter;
 import fpb.meta.MetadataRow;
 import fpb.render.FPBRenderer;
 import fpb.ui.FPBWizard;
+import fpb.ui.FitComboBox;
 import fpb.ui.ImageOrientationControls;
 import fpb.ui.WizardStep;
 import fpb.ui.chooser.RowImage;
@@ -75,19 +76,19 @@ public final class Step4Layout implements WizardStep, AutoCloseable {
     private final OrientationPreview preview = new OrientationPreview();
     private final JLabel size = new JLabel(" ");
     private final JScrollPane previewScroll;
-    private final JComboBox<String> previewZoom = new JComboBox<String>(
+    private final JComboBox<String> previewZoom = new FitComboBox<String>(
             new String[] { "Fit", "100%", "150%", "200%" });
     private final JPanel side = new JPanel();
-    private final JComboBox<String> scaleLength = new JComboBox<String>();
+    private final JComboBox<String> scaleLength = new FitComboBox<String>();
     private final JComboBox<String> scaleCorner =
-            new JComboBox<String>(new String[] {
+            new FitComboBox<String>(new String[] {
                     "Top left", "Top right", "Bottom left", "Bottom right"
             });
     private final JComboBox<String> groupLabelGroup =
-            new JComboBox<String>();
+            new FitComboBox<String>();
     private final JTextField groupLabelText = new JTextField(13);
     private final JComboBox<String> groupLabelAlignment =
-            new JComboBox<String>(new String[] { "Left", "Middle", "Right" });
+            new FitComboBox<String>(new String[] { "Left", "Middle", "Right" });
     private final JButton originalGroupLabel = new JButton("Use original");
     private final Timer groupLabelUpdateTimer;
 

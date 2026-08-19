@@ -11,6 +11,7 @@ package fpb.ui.layout;
 import fpb.figure.PanelConfig;
 import fpb.figure.PanelRecord;
 import fpb.figure.PanelWriter;
+import fpb.ui.FitComboBox;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -64,16 +65,16 @@ public final class ExternalLabelEditor extends JDialog {
     private final JSpinner groupSize;
     private final JCheckBox groupVisible;
     private final JComboBox<String> groupAlignment =
-            new JComboBox<String>(ALIGNMENTS);
+            new FitComboBox<String>(ALIGNMENTS);
     private final JSpinner columnSize;
     private final JCheckBox columnVisible;
     private final JComboBox<String> columnOrientation =
-            new JComboBox<String>(ORIENTATIONS);
+            new FitComboBox<String>(ORIENTATIONS);
     private final JSpinner columnGap;
     private final JSpinner rowSize;
     private final JCheckBox rowVisible;
     private final JComboBox<String> rowOrientation =
-            new JComboBox<String>(ORIENTATIONS);
+            new FitComboBox<String>(ORIENTATIONS);
     private final JSpinner rowGap;
     private final JLabel selectedLabel = new JLabel("Click a label in the canvas");
     private final JTextField selectedText = new JTextField(18);
