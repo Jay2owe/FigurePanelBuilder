@@ -408,8 +408,20 @@ public final class FpbShots {
                 invoke(step, "startExport");
             }
         });
-        settle(3000);
-        shootWizard("14_step5_export_running");
+        // Same guard as the step 3 loader: a small cohort can finish before the
+        // shutter opens, and a second "Export complete" shot is worse than none.
+        settle(900);
+        boolean stillExporting = onEdtGet(new Callable<Boolean>() {
+            public Boolean call() {
+                return Boolean.valueOf(get(step, "activeRun") != null);
+            }
+        }).booleanValue();
+        if (stillExporting) {
+            shootWizard("14_step5_export_running");
+        } else {
+            System.out.println("  - skipped 14_step5_export_running "
+                    + "(export finished before the shutter opened)");
+        }
 
         waitUntil("export to finish", 600000, new Callable<Boolean>() {
             public Boolean call() throws Exception {

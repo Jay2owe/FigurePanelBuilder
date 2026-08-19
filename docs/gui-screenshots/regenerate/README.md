@@ -26,5 +26,8 @@ Two knobs worth knowing:
 - `SHADOW_LOGICAL_PX` trims the invisible Windows resize border, which would
   otherwise leave a strip of desktop down the edges of every shot.
 
-The step 3 loading screen is only captured if the cohort is still loading 140 ms
-after the step opens; with a warm file cache it is skipped rather than faked.
+Two shots are conditional, and are skipped rather than faked when the machine is
+too quick for them: the step 3 loading screen needs the cohort to still be
+loading 140 ms after the step opens, and the export progress screen needs the
+export to still be running 900 ms after it starts. Both are captured with the
+twelve-image demo set on a warm file cache, but a smaller set may miss them.
