@@ -112,5 +112,5 @@ The project targets Java 8 bytecode for Fiji compatibility. The only compile-sco
 Figure Panel Builder is released under the [BSD 3-Clause License](LICENSE). Citation metadata is
 provided in [CITATION.cff](CITATION.cff).
 
-> Malcolm, J. (2026). *Figure Panel Builder* (Version 0.1.0)
-> [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.21933266
+> Malcolm, J. (2026). *Figure Panel Builder* (Version 0.1.1)
+> [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.21933265
