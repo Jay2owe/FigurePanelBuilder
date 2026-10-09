@@ -170,6 +170,15 @@ public final class Step1Images implements WizardStep {
                 updateSummary();
             }
         });
+        tablePanel.setInclusionListener(new Runnable() {
+            @Override
+            public void run() {
+                context.quickGridRequested = false;
+                context.invalidateGuidedDownstream(0);
+                updateSummary();
+                startPreviewPreload();
+            }
+        });
         centre.add(tablePanel, BorderLayout.CENTER);
 
         JPanel bulkRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
@@ -199,6 +208,28 @@ public final class Step1Images implements WizardStep {
             }
         });
         bulkRow.add(applyBulk);
+        JButton includeSelected = new JButton("Tick selected");
+        includeSelected.setToolTipText("Use the selected images in the figure");
+        includeSelected.addActionListener(new java.awt.event.ActionListener() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent event) {
+                if (setImagesIncluded(true, bulkScope.getSelectedIndex() == 1) == 0) {
+                    showMessage("Select one or more table rows, or choose All rows.");
+                }
+            }
+        });
+        bulkRow.add(includeSelected);
+        JButton excludeSelected = new JButton("Untick selected");
+        excludeSelected.setToolTipText("Leave the selected images out of every later step");
+        excludeSelected.addActionListener(new java.awt.event.ActionListener() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent event) {
+                if (setImagesIncluded(false, bulkScope.getSelectedIndex() == 1) == 0) {
+                    showMessage("Select one or more table rows, or choose All rows.");
+                }
+            }
+        });
+        bulkRow.add(excludeSelected);
         centre.add(bulkRow, BorderLayout.SOUTH);
         panel.add(centre, BorderLayout.CENTER);
 
@@ -253,19 +284,29 @@ public final class Step1Images implements WizardStep {
         if (context.quickGridRequested && context.folder != null) {
             context.quickGridRequested = false;
             context.invalidateGuidedDownstream(0);
-            loadFolder(context.folder, true);
+            // Keep the user's ticks and labels; reload only when none exist.
+            if (context.allImagesTable == null) loadFolder(context.folder, true);
         }
-        if (context.metadataTable != null) {
-            tablePanel.setMetadataTable(context.metadataTable);
+        if (context.allImagesTable == null && context.metadataTable != null) {
+            context.allImagesTable = context.metadataTable;
+        }
+        if (context.allImagesTable != null) {
+            tablePanel.setMetadataTable(context.allImagesTable);
             updateSummary();
         }
     }
 
     @Override
     public boolean canAdvance() {
-        return !loading && tablePanel.commitActiveEdit()
-                && context.metadataTable != null && context.metadataTable.fileCount() > 0
-                && context.metadataTable.unassignedCount() == 0;
+        if (loading || !tablePanel.commitActiveEdit()
+                || context.allImagesTable == null) return false;
+        MetadataTable included = context.allImagesTable.includedTable();
+        return included.fileCount() > 0 && included.unassignedCount() == 0;
+    }
+
+    /** Ticks or unticks the selected images, or every image when requested. */
+    public int setImagesIncluded(boolean included, boolean allRows) {
+        return tablePanel.setIncluded(included, allRows);
     }
 
     public void chooseFolder(File folder) {
@@ -273,7 +314,7 @@ public final class Step1Images implements WizardStep {
     }
 
     public MetadataTable metadataTable() {
-        return context.metadataTable;
+        return context.allImagesTable;
     }
 
     public String summaryText() {
@@ -303,11 +344,11 @@ public final class Step1Images implements WizardStep {
         if (!tablePanel.commitActiveEdit()) {
             throw new IOException("Finish the active metadata edit before importing CSV.");
         }
-        if (context.metadataTable == null) {
+        if (context.allImagesTable == null) {
             throw new IOException("Choose an image folder before importing CSV metadata.");
         }
         MetadataTableIO.ImportResult imported =
-                MetadataTableIO.importCsv(context.metadataTable, csvFile);
+                MetadataTableIO.importCsv(context.allImagesTable, csvFile);
         if (!imported.isComplete()) {
             throw new IOException(imported.problemSummary());
         }
@@ -316,7 +357,7 @@ public final class Step1Images implements WizardStep {
         context.tableHandEdited = false;
         context.quickGridRequested = false;
         context.invalidateGuidedDownstream(0);
-        tablePanel.setMetadataTable(context.metadataTable);
+        tablePanel.setMetadataTable(context.allImagesTable);
         updateSummary();
     }
 
@@ -324,10 +365,10 @@ public final class Step1Images implements WizardStep {
         if (!tablePanel.commitActiveEdit()) {
             throw new IOException("Finish the active metadata edit before exporting CSV.");
         }
-        if (context.metadataTable == null) {
+        if (context.allImagesTable == null) {
             throw new IOException("Choose an image folder before exporting CSV metadata.");
         }
-        MetadataTableIO.exportCsv(context.metadataTable, csvFile);
+        MetadataTableIO.exportCsv(context.allImagesTable, csvFile);
     }
 
     private void browseForFolder() {
@@ -376,6 +417,7 @@ public final class Step1Images implements WizardStep {
             File root = folder.getAbsoluteFile();
             retryFolder = root;
             retryRecursiveFallback = allowRecursiveFallback;
+            forgetChannelsFromOtherFolder(root);
             context.folder = root;
             folderField.setText(root.getAbsolutePath());
             applyFolderScan(scanFolder(root, recursiveToggle.isSelected(),
@@ -400,8 +442,10 @@ public final class Step1Images implements WizardStep {
         retryRecursiveFallback = fallback;
         context.quickGridRequested = false;
         context.invalidateGuidedDownstream(0);
+        forgetChannelsFromOtherFolder(root);
         context.folder = root;
         context.recursive = recursive;
+        context.allImagesTable = null;
         context.metadataTable = null;
         folderField.setText(root.getAbsolutePath());
         loading = true;
@@ -467,18 +511,18 @@ public final class Step1Images implements WizardStep {
         recursiveToggle.setSelected(scan.recursive);
         retryFolderButton.setVisible(false);
         if (scan.sources.isEmpty()) {
-            context.metadataTable = MetadataTable.emptySources(scan.root,
+            context.allImagesTable = MetadataTable.emptySources(scan.root,
                     scan.sources);
-            tablePanel.setMetadataTable(context.metadataTable);
+            tablePanel.setMetadataTable(context.allImagesTable);
             updateSummary();
             return;
         }
         LabelStrategy strategy = MetadataTable.suggestSources(scan.root,
                 scan.sources);
-        context.metadataTable = MetadataTable.fromSources(scan.root, scan.sources,
+        context.allImagesTable = MetadataTable.fromSources(scan.root, scan.sources,
                 strategy);
         selectStrategy(strategy);
-        tablePanel.setMetadataTable(context.metadataTable);
+        tablePanel.setMetadataTable(context.allImagesTable);
         updateSummary();
     }
 
@@ -486,12 +530,13 @@ public final class Step1Images implements WizardStep {
         context.imagePreloader.cancel();
         File root = context.folder == null ? retryFolder : context.folder;
         if (root != null) {
-            context.metadataTable = new MetadataTable(root,
+            context.allImagesTable = new MetadataTable(root,
                     Collections.<fpb.meta.MetadataRow>emptyList());
-            tablePanel.setMetadataTable(context.metadataTable);
+            tablePanel.setMetadataTable(context.allImagesTable);
         } else {
-            context.metadataTable = null;
+            context.allImagesTable = null;
         }
+        publishIncludedImages();
         String explanation = failure.getMessage() == null
                 ? "The image folder could not be read."
                 : failure.getMessage();
@@ -500,6 +545,16 @@ public final class Step1Images implements WizardStep {
                 + "<br>After the download completes, click Retry. You can also "
                 + "use Browse to choose another folder.</body></html>");
         retryFolderButton.setVisible(retryFolder != null);
+    }
+
+    /**
+     * Channel names and colours describe one folder's images, so a different
+     * folder starts again from the colours stored in its own files.
+     */
+    private void forgetChannelsFromOtherFolder(File root) {
+        if (context.folder != null && !context.folder.equals(root)) {
+            context.channelSettings = new java.util.ArrayList<FPBWizard.ChannelSetting>();
+        }
     }
 
     private void startPreviewPreload() {
@@ -542,10 +597,10 @@ public final class Step1Images implements WizardStep {
             } else {
                 filenameStrategy.setSelected(true);
                 tokenPicker.setEnabled(true);
-                ImageSource sample = context.metadataTable == null
-                        || context.metadataTable.rows().isEmpty()
+                ImageSource sample = context.allImagesTable == null
+                        || context.allImagesTable.rows().isEmpty()
                         ? null
-                        : context.metadataTable.rows().get(0).source;
+                        : context.allImagesTable.rows().get(0).source;
                 tokenPicker.setSampleSource(sample, strategy instanceof TokenStrategy
                         ? (TokenStrategy) strategy
                         : null);
@@ -566,20 +621,20 @@ public final class Step1Images implements WizardStep {
     }
 
     private void applyStrategy(LabelStrategy strategy) {
-        if (context.metadataTable == null) return;
+        if (context.allImagesTable == null) return;
         if (!tablePanel.commitActiveEdit()) {
             showMessage("Finish the active metadata edit before changing label strategy.");
             return;
         }
-        strategy.apply(context.metadataTable);
+        strategy.apply(context.allImagesTable);
         context.quickGridRequested = false;
         context.invalidateGuidedDownstream(0);
-        tablePanel.setMetadataTable(context.metadataTable);
+        tablePanel.setMetadataTable(context.allImagesTable);
         updateSummary();
     }
 
     private void showAdvancedRegex() {
-        if (context.metadataTable == null) {
+        if (context.allImagesTable == null) {
             showMessage("Choose an image folder before applying a regular expression.");
             return;
         }
@@ -612,12 +667,19 @@ public final class Step1Images implements WizardStep {
         }
     }
 
+    /** Refreshes the summary and hands the ticked images to the later steps. */
     private void updateSummary() {
-        if (context.metadataTable == null) {
+        publishIncludedImages();
+        if (context.allImagesTable == null) {
             summaryLabel.setText("Choose a folder to populate the table.");
         } else {
-            summaryLabel.setText(context.metadataTable.summary());
+            summaryLabel.setText(context.allImagesTable.includedSummary());
         }
+    }
+
+    private void publishIncludedImages() {
+        context.metadataTable = context.allImagesTable == null
+                ? null : context.allImagesTable.includedTable();
     }
 
     private void showMessage(String message) {

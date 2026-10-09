@@ -72,14 +72,35 @@ public class FPBWizardTest {
     }
 
     @Test
-    public void leavingQuickGridLayoutRoutesThroughImagesBeforeGuidedSteps() {
-        assertEquals(0, FPBWizard.navigationTarget(true, 2));
-        assertEquals(0, FPBWizard.navigationTarget(true, 1));
+    public void leavingQuickGridLayoutGoesBackToChannelsSoTheyCanBeChanged() {
+        assertEquals(1, FPBWizard.navigationTarget(true, 2));
+        assertEquals(1, FPBWizard.navigationTarget(true, 1));
         assertEquals(0, FPBWizard.navigationTarget(true, 0));
         assertEquals(3, FPBWizard.navigationTarget(true, 3));
         assertEquals(2, FPBWizard.navigationTarget(false, 2));
-        assertTrue(FPBWizard.quickGridRequestedForStep(true,
+        assertFalse(FPBWizard.quickGridRequestedForStep(true,
                 FPBWizard.navigationTarget(true, 2)));
+    }
+
+    @Test
+    public void quickGridUsesIncludedChannelsInTheirChosenOrder() {
+        java.util.List<FPBWizard.ChannelSetting> settings =
+                new java.util.ArrayList<FPBWizard.ChannelSetting>();
+        FPBWizard.Context context = new FPBWizard.Context();
+        Step2Channels step = new Step2Channels(context);
+        step.onShow();
+        step.moveChannel(2, -2);
+        context.channelSettings.get(1).include = false;
+        settings.addAll(context.channelSettings);
+
+        java.util.List<fpb.ui.chooser.ChannelRail.ChannelSpec> specs =
+                FPBWizard.quickGridChannels(settings);
+
+        assertEquals(2, specs.size());
+        assertEquals(2, specs.get(0).channelIndex());
+        assertEquals(0, specs.get(1).channelIndex());
+        assertEquals(null, FPBWizard.quickGridChannels(
+                new java.util.ArrayList<FPBWizard.ChannelSetting>()));
     }
 
     @Test

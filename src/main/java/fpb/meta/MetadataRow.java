@@ -21,6 +21,8 @@ public final class MetadataRow {
     public String subject;
     public String section;
     public String unassignedReason;
+    /** False when the user unticked this image; later steps never see it. */
+    public boolean included = true;
 
     public MetadataRow(File file) {
         this(ImageSource.file(file), "", "", "");

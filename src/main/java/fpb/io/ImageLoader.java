@@ -8,11 +8,16 @@
  */
 package fpb.io;
 
+import ij.CompositeImage;
 import ij.IJ;
 import ij.ImagePlus;
 import ij.ImageStack;
+import ij.io.FileInfo;
+import ij.io.TiffDecoder;
 import ij.measure.Calibration;
 import ij.process.ImageProcessor;
+import ij.process.LUT;
+import fpb.render.ChannelColour;
 import fpb.util.CancellationCheck;
 
 import java.io.File;
@@ -171,7 +176,7 @@ public final class ImageLoader {
             ProgressCallback callback) throws IOException {
         if (sources == null) throw new IOException("image source list is null");
         if (sources.size() > MAX_IMAGES) {
-            throw new IOException("Figure Panel Builder v0.1.1 handles up to 100 images per run; "
+            throw new IOException("Figure Panel Builder handles up to 100 images per run; "
                     + "this folder has " + sources.size() + ".");
         }
         ProgressCallback progress = callback == null ? ProgressCallback.NONE : callback;
@@ -329,7 +334,8 @@ public final class ImageLoader {
             pooled.add(HistogramCache.cumulativeFromCounts(pooledCounts.get(c)));
         }
         return new LoadResult(new PlaneCache(planeImages),
-                new HistogramCache(histogramImages, pooled));
+                new HistogramCache(histogramImages, pooled),
+                loaded[0].result.channelColours());
     }
 
     private static void addCounts(int[] target, int[] source) throws IOException {
@@ -387,12 +393,77 @@ public final class ImageLoader {
 
             return new LoadedImage(source, bitDepth, image.getWidth(), image.getHeight(),
                     image.getCalibration(), opened.bioFormats, binnedPlanes,
-                    histograms, histogramCounts);
+                    histograms, histogramCounts,
+                    channelColours(source, image, channelCount));
         } finally {
             image.changes = false;
             image.close();
             image.flush();
         }
+    }
+
+    /**
+     * Reads the colour stored for each channel. TIFFs use only the LUTs saved
+     * in their ImageJ header, because openers invent red/green/blue for TIFFs
+     * that store none; other formats (CZI, LIF, ND2...) use the LUTs
+     * Bio-Formats built from their metadata. Entries are null when unknown.
+     */
+    static List<ChannelColour> channelColours(ImageSource source, ImagePlus image,
+            int channelCount) {
+        List<ChannelColour> colours = new ArrayList<ChannelColour>(channelCount);
+        boolean tiff = isTiff(source.file());
+        byte[][] tiffLuts = tiff && !source.isSeries()
+                ? imageJTiffLuts(source.file()) : null;
+        LUT[] imageLuts = !tiff && image instanceof CompositeImage
+                ? ((CompositeImage) image).getLuts() : null;
+        for (int c = 0; c < channelCount; c++) {
+            ChannelColour colour = null;
+            if (tiffLuts != null && tiffLuts.length == channelCount) {
+                colour = fromLutBytes(tiffLuts[c]);
+            } else if (imageLuts != null && imageLuts.length == channelCount) {
+                colour = ChannelColour.fromLutColour(imageLuts[c].getRGB(255));
+            }
+            colours.add(colour);
+        }
+        return colours;
+    }
+
+    private static boolean isTiff(File file) {
+        String name = file.getName().toLowerCase(Locale.ROOT);
+        return name.endsWith(".tif") || name.endsWith(".tiff");
+    }
+
+    /** Per-channel LUTs from an ImageJ TIFF header, without reading pixels. */
+    private static byte[][] imageJTiffLuts(File file) {
+        try {
+            File parent = file.getAbsoluteFile().getParentFile();
+            FileInfo[] info = new TiffDecoder(parent.getAbsolutePath()
+                    + File.separator, file.getName()).getTiffInfo();
+            if (info == null || info.length == 0) return null;
+            FileInfo first = info[0];
+            if (first.channelLuts != null) return first.channelLuts;
+            if (first.lutSize == 256 && first.reds != null
+                    && first.greens != null && first.blues != null) {
+                byte[] lut = new byte[768];
+                System.arraycopy(first.reds, 0, lut, 0, 256);
+                System.arraycopy(first.greens, 0, lut, 256, 256);
+                System.arraycopy(first.blues, 0, lut, 512, 256);
+                return new byte[][] { lut };
+            }
+            return null;
+        } catch (IOException unreadableHeader) {
+            return null;
+        } catch (RuntimeException unreadableHeader) {
+            return null;
+        }
+    }
+
+    private static ChannelColour fromLutBytes(byte[] lut) {
+        // ImageJ stores each LUT as 256 reds, then 256 greens, then 256 blues.
+        if (lut == null || lut.length < 768) return null;
+        int rgb = ((lut[255] & 0xFF) << 16) | ((lut[511] & 0xFF) << 8)
+                | (lut[767] & 0xFF);
+        return ChannelColour.fromLutColour(rgb);
     }
 
     private static short[] projectChannel(ImagePlus image, ImageStack stack,
@@ -771,10 +842,13 @@ public final class ImageLoader {
     public static final class LoadResult {
         private final PlaneCache planeCache;
         private final HistogramCache histogramCache;
+        private final List<ChannelColour> channelColours;
 
-        private LoadResult(PlaneCache planeCache, HistogramCache histogramCache) {
+        private LoadResult(PlaneCache planeCache, HistogramCache histogramCache,
+                List<ChannelColour> channelColours) {
             this.planeCache = planeCache;
             this.histogramCache = histogramCache;
+            this.channelColours = channelColours;
         }
 
         public PlaneCache planeCache() {
@@ -792,6 +866,11 @@ public final class ImageLoader {
         public int channelCount() {
             return planeCache.channelCount();
         }
+
+        /** The first image's own colour per channel; null entries are unknown. */
+        public List<ChannelColour> channelColours() {
+            return channelColours;
+        }
     }
 
     public static final class LoadedImage {
@@ -805,12 +884,13 @@ public final class ImageLoader {
         private final List<PlaneCache.Plane> binnedPlanes;
         private final List<HistogramCache.Histogram> histograms;
         private final List<int[]> histogramCounts;
+        private final List<ChannelColour> channelColours;
 
         private LoadedImage(ImageSource source, int bitDepth, int sourceWidthPx,
                 int sourceHeightPx, Calibration calibration, boolean bioFormats,
                 List<PlaneCache.Plane> binnedPlanes,
                 List<HistogramCache.Histogram> histograms,
-                List<int[]> histogramCounts) {
+                List<int[]> histogramCounts, List<ChannelColour> channelColours) {
             this.source = source;
             this.sourceFile = source.file();
             this.bitDepth = bitDepth;
@@ -823,6 +903,8 @@ public final class ImageLoader {
             this.histograms = Collections.unmodifiableList(
                     new ArrayList<HistogramCache.Histogram>(histograms));
             this.histogramCounts = Collections.unmodifiableList(new ArrayList<int[]>(histogramCounts));
+            this.channelColours = Collections.unmodifiableList(
+                    new ArrayList<ChannelColour>(channelColours));
         }
 
         public File sourceFile() {
@@ -863,6 +945,11 @@ public final class ImageLoader {
 
         public HistogramCache.Histogram histogram(int channelIndex) {
             return histograms.get(channelIndex);
+        }
+
+        /** The file's own colour per channel; an entry is null when none is stored. */
+        public List<ChannelColour> channelColours() {
+            return channelColours;
         }
 
         private PlaneCache.ImagePlanes toPlaneCacheImage() {

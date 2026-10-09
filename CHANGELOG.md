@@ -4,6 +4,21 @@ All notable changes to Figure Panel Builder will be documented here. The format 
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-10-09
+
+### Added
+
+- Images: a Use tick box per image, with Tick/Untick selected, leaves images out without moving files.
+- Channels: arrow buttons reorder channels, which sets the panel column order.
+- Quick grid can be started from Channels and uses the chosen channels, names and colours.
+
+### Fixed
+
+- Channel colours now start from the LUTs saved in ImageJ TIFFs (or Bio-Formats metadata for other
+  formats) instead of a fixed Blue/Magenta/Green order, so a channel is no longer shown in another
+  channel's colour.
+- Quick grid no longer skips channel setup; Back from its layout returns to Channels.
+
 ## [0.1.1] - 2026-08-19
 
 ### Fixed

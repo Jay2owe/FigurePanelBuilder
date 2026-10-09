@@ -44,11 +44,12 @@ public final class FPBMacroOptionsParser {
                 applyFlag(options, token.toLowerCase(Locale.ROOT));
             }
         }
-        if (options.quickGrid() && pending.hasValues()) {
-            throw new IllegalArgumentException("Quick Grid detects channels and derives "
-                    + "pooled cohort ranges automatically; do not supply channel options.");
+        // Quick grid channel choices must name every channel completely,
+        // so a stray option cannot silently drop or recolour channels.
+        if (seenKeys.contains("macro_schema")
+                || (options.quickGrid() && pending.hasValues())) {
+            pending.validateCardinality();
         }
-        if (seenKeys.contains("macro_schema")) pending.validateCardinality();
         options.setChannels(pending.channels, pending.names, pending.colours);
         ranges.apply(options, pending.names);
         options.validate();
@@ -101,6 +102,9 @@ public final class FPBMacroOptionsParser {
             options.setFolder(new File(MacroDataCodec.decodeString(value)));
         }
         else if ("recursive".equals(key)) options.setRecursive(parseBoolean(key, value));
+        else if ("exclude_images_b64".equals(key)) {
+            options.setExcludedImages(MacroDataCodec.decodeStrings(value));
+        }
         else if ("metadata_csv".equals(key)) options.setMetadataCsv(new File(value));
         else if ("metadata_csv_b64".equals(key)) {
             options.setMetadataCsv(new File(MacroDataCodec.decodeString(value)));

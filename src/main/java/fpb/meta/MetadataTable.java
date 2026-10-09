@@ -112,6 +112,24 @@ public final class MetadataTable {
         return rows.size();
     }
 
+    /** A table of the ticked rows only; it shares row objects, so label edits carry over. */
+    public MetadataTable includedTable() {
+        List<MetadataRow> included = new ArrayList<MetadataRow>();
+        for (MetadataRow row : rows) {
+            if (row.included) included.add(row);
+        }
+        return new MetadataTable(root, included);
+    }
+
+    /** Replay names of unticked rows, in the form {@link #csvFileName} writes. */
+    public List<String> excludedImageNames() {
+        List<String> names = new ArrayList<String>();
+        for (MetadataRow row : rows) {
+            if (!row.included) names.add(csvFileName(row));
+        }
+        return Collections.unmodifiableList(names);
+    }
+
     public int groupCount() {
         Set<String> groups = new LinkedHashSet<String>();
         for (MetadataRow row : rows) {
@@ -141,6 +159,14 @@ public final class MetadataTable {
     public String summary() {
         return fileCount() + " images -> " + groupCount() + " groups, "
                 + subjectCount() + " subjects, " + unassignedCount() + " unassigned";
+    }
+
+    /** Summary of the ticked rows, noting how many were left out. */
+    public String includedSummary() {
+        MetadataTable included = includedTable();
+        int skipped = fileCount() - included.fileCount();
+        return included.summary()
+                + (skipped == 0 ? "" : " (" + skipped + " unticked, left out)");
     }
 
     public List<String> caseVariantGroups() {

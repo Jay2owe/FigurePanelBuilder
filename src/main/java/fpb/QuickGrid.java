@@ -66,12 +66,24 @@ public final class QuickGrid {
 
     public static Result run(File folder, boolean recursive,
             ImageLoader.ZMode zMode, ProgressCallback progress) throws IOException {
+        return run(folder, ImageLoader.discoverImageSources(folder, recursive),
+                zMode, null, progress);
+    }
+
+    /**
+     * Builds the grid from chosen images. {@code channels} sets which file
+     * channels appear, in column order, with their names and colours; null or
+     * empty uses every channel in the colours stored in the first image.
+     */
+    public static Result run(File folder, List<ImageSource> imageSources,
+            ImageLoader.ZMode zMode, List<ChannelRail.ChannelSpec> channels,
+            ProgressCallback progress) throws IOException {
         ImageLoader.LoadResult loaded = new ImageLoader(150, 4)
-                .loadFolder(folder, recursive, zMode, progress);
+                .loadSources(imageSources, zMode, progress);
         List<ImageSource> sources = sources(loaded.planeCache());
         List<File> files = sourceFiles(sources);
         MetadataTable table = quickGridTable(folder, sources);
-        List<ChannelRail.ChannelSpec> specs = channelSpecs(loaded.channelCount());
+        List<ChannelRail.ChannelSpec> specs = channelSpecs(loaded, channels);
         LinkedHashMap<Integer, DisplayRange> ranges =
                 cohortRanges(loaded.histogramCache());
         List<FPBRenderer.ChannelRequest> requests = channelRequests(specs, ranges);
@@ -140,12 +152,30 @@ public final class QuickGrid {
         return new MetadataTable(folder, rows);
     }
 
-    private static List<ChannelRail.ChannelSpec> channelSpecs(int channelCount) {
+    private static List<ChannelRail.ChannelSpec> channelSpecs(
+            ImageLoader.LoadResult loaded, List<ChannelRail.ChannelSpec> chosen)
+            throws IOException {
+        int channelCount = loaded.channelCount();
         List<ChannelRail.ChannelSpec> specs =
                 new ArrayList<ChannelRail.ChannelSpec>();
+        if (chosen != null && !chosen.isEmpty()) {
+            for (ChannelRail.ChannelSpec spec : chosen) {
+                if (spec.channelIndex() >= channelCount) {
+                    throw new IOException("Channel C" + (spec.channelIndex() + 1)
+                            + " was chosen, but the images have only "
+                            + channelCount + " channels.");
+                }
+                specs.add(spec);
+            }
+            return Collections.unmodifiableList(specs);
+        }
+        List<ChannelColour> fileColours = loaded.channelColours();
         for (int channel = 0; channel < channelCount; channel++) {
+            ChannelColour colour = channel < fileColours.size()
+                    ? fileColours.get(channel) : null;
             specs.add(new ChannelRail.ChannelSpec(channel, "C" + (channel + 1),
-                    DEFAULT_COLOURS.get(channel % DEFAULT_COLOURS.size())));
+                    colour != null ? colour
+                            : DEFAULT_COLOURS.get(channel % DEFAULT_COLOURS.size())));
         }
         return Collections.unmodifiableList(specs);
     }

@@ -25,4 +25,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: FigurePanelBuilder-jar
-          path: target/FigurePanelBuilder-0.1.0.jar
+          path: |
+            target/FigurePanelBuilder-*.jar
+            !target/*-sources.jar
+            !target/*-tests.jar

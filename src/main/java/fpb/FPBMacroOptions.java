@@ -33,6 +33,7 @@ public final class FPBMacroOptions {
 
     private File folder;
     private boolean recursive;
+    private final List<String> excludedImages = new ArrayList<String>();
     private FPBParameters.MetadataMode metadataMode =
             FPBParameters.MetadataMode.FILENAME_TOKENS;
     private File metadataCsv;
@@ -79,6 +80,17 @@ public final class FPBMacroOptions {
     public void setFolder(File folder) { this.folder = absolute(folder); }
     public boolean recursive() { return recursive; }
     public void setRecursive(boolean recursive) { this.recursive = recursive; }
+    public List<String> excludedImages() {
+        return java.util.Collections.unmodifiableList(excludedImages);
+    }
+    public void setExcludedImages(List<String> images) {
+        excludedImages.clear();
+        if (images == null) return;
+        for (String image : images) {
+            String id = clean(image).replace('\\', '/');
+            if (hasText(id)) excludedImages.add(id);
+        }
+    }
     public FPBParameters.MetadataMode metadataMode() { return metadataMode; }
     public void setMetadataMode(FPBParameters.MetadataMode mode) {
         this.metadataMode = mode == null
@@ -192,6 +204,7 @@ public final class FPBMacroOptions {
         validate();
         FPBParameters.Builder builder = FPBParameters.builder(folder)
                 .recursive(recursive)
+                .excludedImages(excludedImages)
                 .metadataMode(metadataMode)
                 .metadataCsv(metadataCsv)
                 .separator(separator)
@@ -228,6 +241,12 @@ public final class FPBMacroOptions {
         for (int i = 0; i < channels.size(); i++) {
             String name = channelNames.get(i);
             DisplayRange range = rangesByName.get(name);
+            if (quickGrid) {
+                // Quick grid derives each channel's range from the whole cohort.
+                builder.channel(new FPBParameters.Channel(
+                        channels.get(i).intValue() - 1, name, channelLuts.get(i), null));
+                continue;
+            }
             if (range == null) {
                 throw new IllegalArgumentException("range_" + optionSuffix(name)
                         + "_min and range_" + optionSuffix(name)
@@ -245,6 +264,10 @@ public final class FPBMacroOptions {
         tokens.add("macro_schema=2");
         append(tokens, "folder", path(folder));
         if (recursive) tokens.add("recursive");
+        if (!excludedImages.isEmpty()) {
+            tokens.add("exclude_images_b64="
+                    + MacroDataCodec.encodeStrings(excludedImages));
+        }
         if (metadataMode == FPBParameters.MetadataMode.SUBFOLDER) {
             tokens.add("group_from=subfolder");
         } else if (metadataMode == FPBParameters.MetadataMode.CSV) {
@@ -260,7 +283,7 @@ public final class FPBMacroOptions {
             if (subjectToken > 0) tokens.add("subject_token=" + subjectToken);
             if (sectionToken > 0) tokens.add("section_token=" + sectionToken);
         }
-        if (!quickGrid) {
+        if (!quickGrid || !channels.isEmpty()) {
             tokens.add("channels=" + joinIntegers(channels));
             tokens.add("channel_names_b64=" + MacroDataCodec.encodeStrings(channelNames));
             tokens.add("channel_luts=" + joinColours(channelLuts));
@@ -310,6 +333,7 @@ public final class FPBMacroOptions {
         FPBMacroOptions options = new FPBMacroOptions();
         options.setFolder(parameters.folder());
         options.setRecursive(parameters.recursive());
+        options.setExcludedImages(parameters.excludedImages());
         options.setMetadataMode(parameters.metadataMode());
         options.setMetadataCsv(parameters.metadataCsv());
         options.setSeparator(parameters.separator());
@@ -327,7 +351,9 @@ public final class FPBMacroOptions {
             indices.add(Integer.valueOf(channel.channelNumber()));
             names.add(channel.name());
             colours.add(channel.colour());
-            options.putRange(channel.name(), channel.range());
+            if (channel.range() != null) {
+                options.putRange(channel.name(), channel.range());
+            }
         }
         options.setChannels(indices, names, colours);
         options.setZMode(parameters.zMode());
@@ -370,6 +396,9 @@ public final class FPBMacroOptions {
         FPBMacroOptions options = new FPBMacroOptions();
         options.setFolder(context.folder);
         options.setRecursive(context.recursive);
+        if (context.allImagesTable != null) {
+            options.setExcludedImages(context.allImagesTable.excludedImageNames());
+        }
         options.setZMode(ImageLoader.ZMode.fromString(context.zHandling).optionName());
         options.setStatistic(context.statistic);
         options.setStatisticCsv(context.statisticCsv);
@@ -378,13 +407,20 @@ public final class FPBMacroOptions {
         if (context.recordedMetadataCsv != null) {
             options.setMetadataCsv(context.recordedMetadataCsv);
         }
-        if (!context.quickGridRequested) {
-            for (FPBRenderer.ChannelRequest request : context.layoutChannelRequests) {
-                options.channels.add(Integer.valueOf(request.channelIndex() + 1));
-                options.channelNames.add(request.name());
-                options.channelLuts.add(request.colour());
+        // Quick grid records channels only when the user chose them on the
+        // Channels step; otherwise replay derives them from the files again.
+        boolean recordChannels = !context.quickGridRequested
+                || !context.channelSettings.isEmpty();
+        for (FPBRenderer.ChannelRequest request : context.layoutChannelRequests) {
+            if (!recordChannels) break;
+            options.channels.add(Integer.valueOf(request.channelIndex() + 1));
+            options.channelNames.add(request.name());
+            options.channelLuts.add(request.colour());
+            if (!context.quickGridRequested) {
                 options.putRange(request.name(), request.range());
             }
+        }
+        if (!context.quickGridRequested) {
             for (Map.Entry<String, RowImage.SubjectRow> entry
                     : context.selectedRowsByGroup.entrySet()) {
                 options.putPick(entry.getKey(), entry.getValue().subject());
@@ -434,9 +470,9 @@ public final class FPBMacroOptions {
         if (!quickGrid && channels.isEmpty()) {
             throw new IllegalArgumentException("channels is required.");
         }
-        if (quickGrid && !channels.isEmpty()) {
-            throw new IllegalArgumentException("Quick Grid detects channels and derives "
-                    + "pooled cohort ranges automatically; do not supply channels.");
+        if (quickGrid && !rangesByName.isEmpty()) {
+            throw new IllegalArgumentException("Quick Grid derives pooled cohort "
+                    + "ranges automatically; do not supply ranges.");
         }
         if (quickGrid && (!picks.isEmpty() || !pickImages.isEmpty())) {
             throw new IllegalArgumentException("Quick Grid exports every discovered image "

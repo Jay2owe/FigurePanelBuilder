@@ -117,6 +117,11 @@ public final class FPBWizard {
                     public void run() {
                         navigateTo(0);
                     }
+                }, new Runnable() {
+                    @Override
+                    public void run() {
+                        goToQuickGrid();
+                    }
                 }),
                 chooserStep,
                 new Step4Layout(context),
@@ -256,13 +261,24 @@ public final class FPBWizard {
         }
         if (isQuickGridRunning()) return;
         final java.io.File folder = context.folder;
+        final List<fpb.io.ImageSource> sources = includedSources();
+        if (sources != null && sources.isEmpty()) {
+            JOptionPane.showMessageDialog(dialog,
+                    "Tick at least one image before using Quick grid.",
+                    "Figure Panel Builder", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        final List<fpb.ui.chooser.ChannelRail.ChannelSpec> channels =
+                quickGridChannels(context.channelSettings);
         final boolean recursive = context.recursive;
         final ImageLoader.ZMode zMode = ImageLoader.ZMode.fromString(
                 context.zHandling);
         quickGridWorker = new SwingWorker<QuickGrid.Result, String>() {
             @Override
             protected QuickGrid.Result doInBackground() throws Exception {
-                return QuickGrid.run(folder, recursive, zMode,
+                return QuickGrid.run(folder, sources != null ? sources
+                        : ImageLoader.discoverImageSources(folder, recursive),
+                        zMode, channels,
                         new ProgressCallback() {
                             @Override
                             public void onProgress(int completed, int total,
@@ -308,6 +324,30 @@ public final class FPBWizard {
         quickGridWorker.execute();
     }
 
+    /** Ticked images from step 1, or null when no table has been built yet. */
+    private List<fpb.io.ImageSource> includedSources() {
+        MetadataTable table = context.allImagesTable != null
+                ? context.allImagesTable.includedTable() : context.metadataTable;
+        if (table == null || context.quickGridRequested) return null;
+        List<fpb.io.ImageSource> sources = new ArrayList<fpb.io.ImageSource>();
+        for (fpb.meta.MetadataRow row : table.rows()) sources.add(row.source);
+        return sources;
+    }
+
+    /** Included channels in their chosen order; null lets Quick grid use the file's own. */
+    static List<fpb.ui.chooser.ChannelRail.ChannelSpec> quickGridChannels(
+            List<ChannelSetting> settings) {
+        if (settings == null || settings.isEmpty()) return null;
+        List<fpb.ui.chooser.ChannelRail.ChannelSpec> specs =
+                new ArrayList<fpb.ui.chooser.ChannelRail.ChannelSpec>();
+        for (ChannelSetting setting : settings) {
+            if (setting == null || !setting.include) continue;
+            specs.add(new fpb.ui.chooser.ChannelRail.ChannelSpec(
+                    setting.sourceIndex, setting.name, setting.colour));
+        }
+        return specs.isEmpty() ? null : specs;
+    }
+
     private void applyQuickGridResult(QuickGrid.Result result) {
         context.quickGridRequested = true;
         context.metadataTable = result.table();
@@ -342,6 +382,13 @@ public final class FPBWizard {
 
     private void showStep(int index) {
         stepIndex = Math.max(0, Math.min(index, steps.length - 1));
+        if (context.quickGridRequested && stepIndex < 3
+                && context.allImagesTable != null) {
+            // The Quick grid table labels each image as its own group; the
+            // guided steps need the user's own labels back.
+            context.metadataTable = context.allImagesTable.includedTable();
+            context.invalidateGuidedDownstream(1);
+        }
         context.quickGridRequested = quickGridRequestedForStep(
                 context.quickGridRequested, stepIndex);
         WizardStep step = steps[stepIndex];
@@ -397,8 +444,9 @@ public final class FPBWizard {
         return quickGridRequested && stepIndex != 1 && stepIndex != 2;
     }
 
+    /** Quick grid has no Choose-images state, so stepping back lands on Channels. */
     static int navigationTarget(boolean quickGridRequested, int requestedIndex) {
-        return quickGridRequested && requestedIndex < 3 ? 0 : requestedIndex;
+        return quickGridRequested && requestedIndex == 2 ? 1 : requestedIndex;
     }
 
     static int invalidatedMaxCompletedIndex(int currentMaximum,
@@ -492,7 +540,10 @@ public final class FPBWizard {
             void invalidatedAfter(int sourceStepIndex);
         }
 
+        /** Included images only; every later step reads this table. */
         public MetadataTable metadataTable;
+        /** Every discovered image, including those unticked in step 1. */
+        public MetadataTable allImagesTable;
         public final ImagePreloader imagePreloader = new ImagePreloader();
         public java.io.File folder;
         public boolean recursive;
@@ -558,12 +609,16 @@ public final class FPBWizard {
         return out;
     }
 
+    /** One file channel; list position sets its panel column order. */
     public static final class ChannelSetting {
+        public final int sourceIndex;
         public boolean include;
         public String name;
         public ChannelColour colour;
 
-        ChannelSetting(boolean include, String name, ChannelColour colour) {
+        ChannelSetting(int sourceIndex, boolean include, String name,
+                ChannelColour colour) {
+            this.sourceIndex = sourceIndex;
             this.include = include;
             this.name = name;
             this.colour = colour;

@@ -34,6 +34,7 @@ public final class FPBParameters {
 
     private final File folder;
     private final boolean recursive;
+    private final List<String> excludedImages;
     private final MetadataMode metadataMode;
     private final File metadataCsv;
     private final char separator;
@@ -72,6 +73,12 @@ public final class FPBParameters {
     private FPBParameters(Builder builder) {
         this.folder = absolute(builder.folder);
         this.recursive = builder.recursive;
+        List<String> excluded = new ArrayList<String>();
+        for (String image : builder.excludedImages) {
+            String id = normalizeImageId(image);
+            if (id.length() > 0) excluded.add(id);
+        }
+        this.excludedImages = Collections.unmodifiableList(excluded);
         this.metadataMode = builder.metadataMode == null
                 ? MetadataMode.FILENAME_TOKENS : builder.metadataMode;
         this.metadataCsv = absolute(builder.metadataCsv);
@@ -124,6 +131,7 @@ public final class FPBParameters {
         return new Builder()
                 .folder(folder)
                 .recursive(recursive)
+                .excludedImages(excludedImages)
                 .metadataMode(metadataMode)
                 .metadataCsv(metadataCsv)
                 .separator(separator)
@@ -162,6 +170,8 @@ public final class FPBParameters {
 
     public File folder() { return folder; }
     public boolean recursive() { return recursive; }
+    /** Images left out of the run, named relative to the folder as in metadata.csv. */
+    public List<String> excludedImages() { return excludedImages; }
     public MetadataMode metadataMode() { return metadataMode; }
     public File metadataCsv() { return metadataCsv; }
     public char separator() { return separator; }
@@ -219,10 +229,6 @@ public final class FPBParameters {
         if (!parameters.quickGrid && parameters.channels.isEmpty()) {
             throw new IllegalArgumentException("At least one channel with an explicit range is required.");
         }
-        if (parameters.quickGrid && !parameters.channels.isEmpty()) {
-            throw new IllegalArgumentException("Quick Grid detects channels and derives "
-                    + "pooled cohort ranges automatically; do not supply channels.");
-        }
         if (parameters.quickGrid && (!parameters.picks.isEmpty()
                 || !parameters.pickImages.isEmpty())) {
             throw new IllegalArgumentException("Quick Grid exports every discovered image "
@@ -250,7 +256,13 @@ public final class FPBParameters {
                 throw new IllegalArgumentException("Channel name '" + channel.name()
                         + "' is reserved for the synthetic Merge panel.");
             }
-            if (channel.range() == null || !channel.range().isValid()) {
+            if (parameters.quickGrid && channel.range() != null) {
+                throw new IllegalArgumentException("Quick Grid derives pooled cohort "
+                        + "ranges automatically; do not supply a range for channel '"
+                        + channel.name() + "'.");
+            }
+            if (!parameters.quickGrid
+                    && (channel.range() == null || !channel.range().isValid())) {
                 throw new IllegalArgumentException("No display range locked for channel '"
                         + channel.name() + "'. Figure Panel Builder never applies automatic per-image contrast.");
             }
@@ -319,6 +331,7 @@ public final class FPBParameters {
     public static final class Builder {
         private File folder;
         private boolean recursive;
+        private List<String> excludedImages = new ArrayList<String>();
         private MetadataMode metadataMode = MetadataMode.FILENAME_TOKENS;
         private File metadataCsv;
         private char separator = '_';
@@ -363,6 +376,13 @@ public final class FPBParameters {
 
         public Builder recursive(boolean recursive) {
             this.recursive = recursive;
+            return this;
+        }
+
+        public Builder excludedImages(List<String> excludedImages) {
+            this.excludedImages = excludedImages == null
+                    ? new ArrayList<String>()
+                    : new ArrayList<String>(excludedImages);
             return this;
         }
 

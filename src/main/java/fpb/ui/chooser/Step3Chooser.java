@@ -415,7 +415,8 @@ public final class Step3Chooser implements WizardStep, AutoCloseable {
         if (context.channelSettings != null) {
             for (FPBWizard.ChannelSetting setting : context.channelSettings) {
                 if (setting == null) continue;
-                key.append(setting.include).append('\u001f').append(setting.name)
+                key.append(setting.sourceIndex).append('\u001f')
+                        .append(setting.include).append('\u001f').append(setting.name)
                         .append('\u001f').append(setting.colour).append('\n');
             }
         }
@@ -437,11 +438,11 @@ public final class Step3Chooser implements WizardStep, AutoCloseable {
                 new ArrayList<ChannelRail.ChannelSpec>();
         if (context != null && context.channelSettings != null
                 && !context.channelSettings.isEmpty()) {
-            for (int i = 0; i < context.channelSettings.size()
-                    && i < loadedChannelCount; i++) {
-                FPBWizard.ChannelSetting setting = context.channelSettings.get(i);
-                if (setting != null && setting.include) {
-                    specs.add(new ChannelRail.ChannelSpec(i, setting.name, setting.colour));
+            for (FPBWizard.ChannelSetting setting : context.channelSettings) {
+                if (setting != null && setting.include
+                        && setting.sourceIndex < loadedChannelCount) {
+                    specs.add(new ChannelRail.ChannelSpec(setting.sourceIndex,
+                            setting.name, setting.colour));
                 }
             }
         }

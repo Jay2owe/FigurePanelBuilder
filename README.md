@@ -55,7 +55,7 @@ an ImageJ or Bio-Formats open call already in progress must return before cancel
 ## Use In Fiji
 
 Figure Panel Builder requires [Fiji](https://fiji.sc/) with Bio-Formats. Download
-`FigurePanelBuilder-0.1.1.jar` from the
+`FigurePanelBuilder-0.2.0.jar` from the
 [latest GitHub release](https://github.com/Jay2owe/FigurePanelBuilder/releases/latest), copy it into
 Fiji's `plugins` folder, restart Fiji, then run
 `Plugins > Figure Panel Builder`. The guided wizard supports folder loading, metadata labelling,
@@ -64,6 +64,12 @@ channel setup, representative selection, layout, annotation, and export.
 For automatic installation and updates, open `Help > Update...`, choose `Manage update sites`,
 add an unlisted site named `FigurePanelBuilder` with URL
 `https://sites.imagej.net/FigurePanelBuilder/`, enable it, apply the changes, and restart Fiji.
+In Images, untick the Use box of any image to leave it out of every later step, so one folder can
+serve several figures. Channels starts each colour from the LUT saved in the file, and its arrow
+buttons set the panel column order; Quick grid also uses these channel choices, and Back from a
+Quick grid layout returns to Channels. Recorded macros replay unticked images as
+`exclude_images_b64` and Quick grid channel choices as `channels`, `channel_names_b64` and
+`channel_luts`.
 Each Choose Images row has four compact icon controls for 90-degree left/right rotation and
 horizontal/vertical flipping. The same controls appear over an image while it is hovered in the
 Layout canvas. Orientation is stored per logical image and is applied consistently to previews,
@@ -112,5 +118,5 @@ The project targets Java 8 bytecode for Fiji compatibility. The only compile-sco
 Figure Panel Builder is released under the [BSD 3-Clause License](LICENSE). Citation metadata is
 provided in [CITATION.cff](CITATION.cff).
 
-> Malcolm, J. (2026). *Figure Panel Builder* (Version 0.1.1)
-> [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.22015009
+> Malcolm, J. (2026). *Figure Panel Builder* (Version 0.2.0)
+> [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.21933265

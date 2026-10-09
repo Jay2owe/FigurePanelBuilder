@@ -47,6 +47,65 @@ public class Step2ChannelsTest {
     }
 
     @Test
+    public void startingColoursComeFromTheLutsSavedInTheImage() throws Exception {
+        File root = temp.newFolder("saved-luts");
+        File image = new File(root, "Control_S1.tif");
+        saveComposite(image, java.awt.Color.GREEN, java.awt.Color.RED,
+                java.awt.Color.BLUE);
+        FPBWizard.Context context = new FPBWizard.Context();
+        context.metadataTable = new MetadataTable(root, Arrays.asList(
+                new MetadataRow(image, "Control", "S1", "")));
+        Step2Channels step = new Step2Channels(context);
+
+        step.onShow();
+
+        assertEquals(3, step.detectedChannelCount());
+        assertEquals("green", step.channelSettings().get(0).colour.name());
+        assertEquals("red", step.channelSettings().get(1).colour.name());
+        assertEquals("blue", step.channelSettings().get(2).colour.name());
+        assertTrue(step.detectionMessage().contains("read from the file"));
+    }
+
+    @Test
+    public void movingAChannelChangesPanelOrderButKeepsItsSourceChannel() {
+        FPBWizard.Context context = new FPBWizard.Context();
+        Step2Channels step = new Step2Channels(context);
+        step.onShow();
+
+        assertTrue(step.moveChannel(0, 1));
+
+        assertEquals(1, step.channelSettings().get(0).sourceIndex);
+        assertEquals("C2", step.channelSettings().get(0).name);
+        assertEquals("magenta", step.channelSettings().get(0).colour.name());
+        assertEquals(0, step.channelSettings().get(1).sourceIndex);
+        assertFalse(step.moveChannel(0, -1));
+        assertFalse(step.moveChannel(2, 1));
+
+        // Revisiting the step keeps the chosen order.
+        step.retryDetection();
+        assertEquals(1, step.channelSettings().get(0).sourceIndex);
+    }
+
+    private static void saveComposite(File file, java.awt.Color... colours)
+            throws Exception {
+        ij.ImageStack stack = new ij.ImageStack(8, 8);
+        for (int c = 0; c < colours.length; c++) {
+            stack.addSlice(new ij.process.ShortProcessor(8, 8));
+        }
+        ij.ImagePlus plain = new ij.ImagePlus(file.getName(), stack);
+        plain.setDimensions(colours.length, 1, 1);
+        ij.CompositeImage composite = new ij.CompositeImage(plain,
+                ij.CompositeImage.COMPOSITE);
+        for (int c = 0; c < colours.length; c++) {
+            composite.setChannelLut(ij.process.LUT.createLutFromColor(colours[c]),
+                    c + 1);
+        }
+        assertTrue(new ij.io.FileSaver(composite).saveAsTiff(file.getAbsolutePath()));
+        composite.changes = false;
+        composite.close();
+    }
+
+    @Test
     public void atLeastOneIncludedChannelIsRequiredToAdvance() {
         FPBWizard.Context context = new FPBWizard.Context();
         Step2Channels step = new Step2Channels(context);

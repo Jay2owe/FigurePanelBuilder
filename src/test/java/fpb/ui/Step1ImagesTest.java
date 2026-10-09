@@ -57,6 +57,33 @@ public class Step1ImagesTest {
     }
 
     @Test
+    public void untickedImagesAreLeftOutOfEveryLaterStep() {
+        FPBWizard.Context context = new FPBWizard.Context();
+        Step1Images step = new Step1Images(context, null);
+        step.chooseFolder(fixture("basic"));
+
+        step.tablePanel().table().setRowSelectionInterval(0, 1);
+        assertEquals(2, step.setImagesIncluded(false, false));
+
+        assertEquals(24, step.metadataTable().fileCount());
+        assertEquals(22, context.metadataTable.fileCount());
+        assertFalse(context.metadataTable.rows().contains(
+                step.metadataTable().rows().get(0)));
+        assertEquals(2, context.allImagesTable.excludedImageNames().size());
+        assertTrue(step.summaryText().startsWith("22 images"));
+        assertTrue(step.summaryText().contains("2 unticked"));
+
+        // An unticked image with no labels must not block the wizard.
+        step.metadataTable().rows().get(0).clearLabels("test");
+        assertTrue(step.canAdvance());
+
+        assertEquals(24, step.setImagesIncluded(false, true));
+        assertFalse(step.canAdvance());
+        assertEquals(24, step.setImagesIncluded(true, true));
+        assertEquals(24, context.metadataTable.fileCount());
+    }
+
+    @Test
     public void folderPerGroupLayoutSelectsSubfolderStrategy() throws Exception {
         File root = temp.newFolder("folder-per-group");
         touch(mkdir(root, "Control"), "S1.tif");
@@ -92,7 +119,7 @@ public class Step1ImagesTest {
         Step1Images step = new Step1Images(context, null);
         step.chooseFolder(fixture("basic"));
 
-        step.tablePanel().table().setValueAt("EditedGroup", 0, 1);
+        step.tablePanel().table().setValueAt("EditedGroup", 0, 2);
         step.onShow();
 
         assertTrue(context.tableHandEdited);
@@ -159,7 +186,7 @@ public class Step1ImagesTest {
         Step1Images step = new Step1Images(context, null);
         step.chooseFolder(fixture("basic"));
 
-        step.tablePanel().table().setValueAt("", 0, 2);
+        step.tablePanel().table().setValueAt("", 0, 3);
 
         assertEquals(1, step.metadataTable().unassignedCount());
         assertFalse(step.canAdvance());
@@ -175,7 +202,7 @@ public class Step1ImagesTest {
         SwingUtilities.invokeAndWait(new Runnable() {
             @Override
             public void run() {
-                assertTrue(step.tablePanel().table().editCellAt(0, 1));
+                assertTrue(step.tablePanel().table().editCellAt(0, 2));
                 JTextField editor = (JTextField) step.tablePanel().table()
                         .getEditorComponent();
                 editor.setText("");

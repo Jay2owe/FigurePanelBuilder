@@ -51,6 +51,24 @@ public final class ChannelColour {
         throw new IllegalArgumentException("Unknown channel colour: " + name);
     }
 
+    /**
+     * Maps the brightest entry of an image LUT to the named colour with the same
+     * RGB components, or null when the LUT is black.
+     */
+    public static ChannelColour fromLutColour(int rgb) {
+        boolean r = ((rgb >> 16) & 0xFF) >= 128;
+        boolean g = ((rgb >> 8) & 0xFF) >= 128;
+        boolean b = (rgb & 0xFF) >= 128;
+        if (r && g && b) return GREY;
+        if (r && g) return YELLOW;
+        if (r && b) return MAGENTA;
+        if (g && b) return CYAN;
+        if (r) return RED;
+        if (g) return GREEN;
+        if (b) return BLUE;
+        return null;
+    }
+
     public String name() {
         return name;
     }

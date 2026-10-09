@@ -55,6 +55,46 @@ public class MacroRoundTripTest {
     }
 
     @Test
+    public void untickedImagesReplayAsExclusions() throws Exception {
+        String macro = "folder=" + bracket(basicFolder())
+                + " separator=_ group_token=1 subject_token=2 "
+                + "exclude_images_b64=" + MacroDataCodec.encodeStrings(
+                        Arrays.asList("Control_S1.tif", "Wash_S6.tif"))
+                + " channels=1 channel_names=DAPI channel_luts=Blue "
+                + "range_DAPI_min=0 range_DAPI_max=5000 hide_display";
+
+        FPBParameters parameters = FPBMacroOptionsParser.parse(macro).toParameters();
+        String recorded = FPBMacroOptions.fromParameters(parameters).toMacroOptions();
+
+        assertEquals(Arrays.asList("Control_S1.tif", "Wash_S6.tif"),
+                parameters.excludedImages());
+        assertTrue(recorded.contains("exclude_images_b64="));
+        assertEquals(22, FPB.includedSources(parameters).size());
+        for (fpb.io.ImageSource source : FPB.includedSources(parameters)) {
+            assertFalse(source.file().getName().equals("Control_S1.tif"));
+        }
+    }
+
+    @Test
+    public void quickGridReplaysChosenChannelOrderAndColours() throws Exception {
+        String macro = "folder=" + bracket(basicFolder())
+                + " channels=3,1 channel_names=[GFAP,DAPI] channel_luts=Green,Blue"
+                + " quick_grid hide_display";
+
+        FPBParameters parameters = FPBMacroOptionsParser.parse(macro).toParameters();
+        String recorded = FPBMacroOptions.fromParameters(parameters).toMacroOptions();
+        FPBResult result = FPB.run(parameters);
+
+        assertTrue(recorded.contains("channels=3,1"));
+        assertFalse(recorded.contains("range_"));
+        assertEquals(2, result.channelRequests().size());
+        assertEquals(2, result.channelRequests().get(0).channelIndex());
+        assertEquals("GFAP", result.channelRequests().get(0).name());
+        assertEquals("green", result.channelRequests().get(0).colour().name());
+        assertEquals(0, result.channelRequests().get(1).channelIndex());
+    }
+
+    @Test
     public void allMetadataStrategiesAreExpressible() {
         String common = " folder=" + bracket(basicFolder())
                 + " channels=1 channel_names=DAPI channel_luts=Blue "

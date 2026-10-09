@@ -43,6 +43,7 @@ public final class Step2Channels implements WizardStep {
 
     private final FPBWizard.Context context;
     private final Runnable chooseAnotherFolderAction;
+    private final Runnable quickGridAction;
     private final JPanel panel;
     private final JLabel detectedLabel;
     private final JLabel recoveryDetail;
@@ -57,16 +58,23 @@ public final class Step2Channels implements WizardStep {
     private ImageSource lastSource;
     private boolean detectionFailed;
     private boolean detectionInProgress;
-    private SwingWorker<Integer, Void> detectionWorker;
+    private List<ChannelColour> detectedColours = new ArrayList<ChannelColour>();
+    private SwingWorker<List<ChannelColour>, Void> detectionWorker;
 
     public Step2Channels(FPBWizard.Context context) {
-        this(context, null);
+        this(context, null, null);
     }
 
     public Step2Channels(FPBWizard.Context context,
             Runnable chooseAnotherFolderAction) {
+        this(context, chooseAnotherFolderAction, null);
+    }
+
+    public Step2Channels(FPBWizard.Context context,
+            Runnable chooseAnotherFolderAction, Runnable quickGridAction) {
         this.context = context;
         this.chooseAnotherFolderAction = chooseAnotherFolderAction;
+        this.quickGridAction = quickGridAction;
         panel = new JPanel(new BorderLayout(10, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(14, 16, 12, 16));
 
@@ -176,6 +184,29 @@ public final class Step2Channels implements WizardStep {
                 });
         statisticRow.add(statisticColumn);
         bottom.add(statisticRow);
+
+        if (quickGridAction != null) {
+            JPanel quickGridRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+            JButton quickGrid = new JButton("Quick grid");
+            quickGrid.addActionListener(new java.awt.event.ActionListener() {
+                @Override
+                public void actionPerformed(java.awt.event.ActionEvent event) {
+                    if (!channelsValid()) {
+                        javax.swing.JOptionPane.showMessageDialog(panel,
+                                "Include at least one channel and give each "
+                                + "included channel a unique name.",
+                                "Figure Panel Builder",
+                                javax.swing.JOptionPane.INFORMATION_MESSAGE);
+                        return;
+                    }
+                    Step2Channels.this.quickGridAction.run();
+                }
+            });
+            quickGridRow.add(quickGrid);
+            quickGridRow.add(new JLabel("Every included image in one grid, "
+                    + "using the channels above"));
+            bottom.add(quickGridRow);
+        }
         updateStatisticControls();
         panel.add(bottom, BorderLayout.SOUTH);
     }
@@ -212,6 +243,15 @@ public final class Step2Channels implements WizardStep {
 
     @Override
     public boolean canAdvance() {
+        if (!channelsValid()) return false;
+        return statisticSource.getSelectedIndex() == 0
+                || (context.statisticCsv != null && context.statisticCsv.isFile()
+                && context.statisticColumn != null
+                && !context.statisticColumn.trim().isEmpty());
+    }
+
+    /** True when detection finished and the included channels have usable names. */
+    public boolean channelsValid() {
         if (detectionFailed || detectionInProgress) return false;
         java.util.LinkedHashSet<String> names = new java.util.LinkedHashSet<String>();
         for (FPBWizard.ChannelSetting setting : context.channelSettings) {
@@ -222,11 +262,21 @@ public final class Step2Channels implements WizardStep {
                 return false;
             }
         }
-        if (names.isEmpty()) return false;
-        return statisticSource.getSelectedIndex() == 0
-                || (context.statisticCsv != null && context.statisticCsv.isFile()
-                && context.statisticColumn != null
-                && !context.statisticColumn.trim().isEmpty());
+        return !names.isEmpty();
+    }
+
+    /** Moves the channel at {@code position} earlier (negative) or later in the panel order. */
+    public boolean moveChannel(int position, int delta) {
+        int target = position + delta;
+        List<FPBWizard.ChannelSetting> settings = context.channelSettings;
+        if (position < 0 || position >= settings.size()
+                || target < 0 || target >= settings.size()) {
+            return false;
+        }
+        java.util.Collections.swap(settings, position, target);
+        context.invalidateGuidedDownstream(1);
+        rebuildRows();
+        return true;
     }
 
     public int detectedChannelCount() {
@@ -291,7 +341,8 @@ public final class Step2Channels implements WizardStep {
     }
 
     private void detectChannels(ImageSource source) {
-        int count = 3;
+        List<ChannelColour> colours = new ArrayList<ChannelColour>();
+        for (int i = 0; i < 3; i++) colours.add(null);
         detectionFailed = false;
         detectionInProgress = false;
         if (source != null && source.file().isFile()) {
@@ -299,15 +350,15 @@ public final class Step2Channels implements WizardStep {
                 ImageLoader.LoadResult preloaded = context.imagePreloader.readyResult(
                         currentSources(), ImageLoader.ZMode.fromString(
                                 context.zHandling));
-                count = preloaded == null
-                        ? new ImageLoader().loadImage(source).channelCount()
-                        : preloaded.channelCount();
+                colours = preloaded == null
+                        ? new ImageLoader().loadImage(source).channelColours()
+                        : preloaded.channelColours();
             } catch (IOException failure) {
                 showDetectionFailure(source, failure);
                 return;
             }
         }
-        showDetectionSuccess(count);
+        showDetectionSuccess(colours);
     }
 
     private void startDetection(final ImageSource source) {
@@ -330,11 +381,11 @@ public final class Step2Channels implements WizardStep {
         recoveryDetail.setVisible(true);
         recoveryActions.setVisible(false);
 
-        final SwingWorker<Integer, Void> worker = new SwingWorker<Integer, Void>() {
+        final SwingWorker<List<ChannelColour>, Void> worker =
+                new SwingWorker<List<ChannelColour>, Void>() {
             @Override
-            protected Integer doInBackground() throws Exception {
-                return Integer.valueOf(new ImageLoader().loadImage(source)
-                        .channelCount());
+            protected List<ChannelColour> doInBackground() throws Exception {
+                return new ImageLoader().loadImage(source).channelColours();
             }
 
             @Override
@@ -343,7 +394,7 @@ public final class Step2Channels implements WizardStep {
                 detectionInProgress = false;
                 if (isCancelled()) return;
                 try {
-                    showDetectionSuccess(get().intValue());
+                    showDetectionSuccess(get());
                 } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
                     showDetectionFailure(source, new IOException(
@@ -361,13 +412,20 @@ public final class Step2Channels implements WizardStep {
         worker.execute();
     }
 
-    private void showDetectionSuccess(int count) {
+    private void showDetectionSuccess(List<ChannelColour> colours) {
         detectionFailed = false;
         detectionInProgress = false;
-        context.detectedChannelCount = Math.max(1, count);
+        detectedColours = colours == null
+                ? new ArrayList<ChannelColour>()
+                : new ArrayList<ChannelColour>(colours);
+        context.detectedChannelCount = Math.max(1, detectedColours.size());
         ensureSettings();
+        boolean fromFile = false;
+        for (ChannelColour colour : detectedColours) fromFile |= colour != null;
         detectedLabel.setText("Detected " + context.detectedChannelCount
-                + " channels in the first image");
+                + " channels in the first image"
+                + (fromFile ? "; starting colours were read from the file" : "")
+                + ". The arrows change the panel order.");
         recoveryDetail.setText("");
         recoveryDetail.setVisible(false);
         recoveryActions.setVisible(false);
@@ -398,20 +456,24 @@ public final class Step2Channels implements WizardStep {
                 .replace(">", "&gt;").replace("\"", "&quot;");
     }
 
+    /** Keeps earlier choices in their chosen order and adds any new channels. */
     private void ensureSettings() {
+        int count = context.detectedChannelCount;
         List<FPBWizard.ChannelSetting> settings =
                 new ArrayList<FPBWizard.ChannelSetting>();
-        for (int i = 0; i < context.detectedChannelCount; i++) {
-            FPBWizard.ChannelSetting existing =
-                    i < context.channelSettings.size()
-                            ? context.channelSettings.get(i)
-                            : null;
-            if (existing == null) {
-                settings.add(new FPBWizard.ChannelSetting(true, "C" + (i + 1),
-                        colourFor(i)));
-            } else {
-                settings.add(existing);
-            }
+        boolean[] present = new boolean[count];
+        for (FPBWizard.ChannelSetting existing : context.channelSettings) {
+            if (existing == null || existing.sourceIndex >= count
+                    || present[existing.sourceIndex]) continue;
+            present[existing.sourceIndex] = true;
+            settings.add(existing);
+        }
+        for (int i = 0; i < count; i++) {
+            if (present[i]) continue;
+            ChannelColour detected = i < detectedColours.size()
+                    ? detectedColours.get(i) : null;
+            settings.add(new FPBWizard.ChannelSetting(i, true, "C" + (i + 1),
+                    detected == null ? colourFor(i) : detected));
         }
         context.channelSettings = settings;
     }
@@ -430,7 +492,7 @@ public final class Step2Channels implements WizardStep {
                 }
             });
             row.add(include);
-            row.add(new JLabel("C" + (i + 1)));
+            row.add(new JLabel("C" + (setting.sourceIndex + 1)));
             final JTextField name = new JTextField(setting.name, 12);
             name.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
                 @Override public void insertUpdate(javax.swing.event.DocumentEvent event) {
@@ -458,6 +520,27 @@ public final class Step2Channels implements WizardStep {
                 }
             });
             row.add(colour);
+            final int position = i;
+            JButton up = new JButton("▲");
+            up.setToolTipText("Move this channel one panel to the left");
+            up.setEnabled(i > 0);
+            up.addActionListener(new java.awt.event.ActionListener() {
+                @Override
+                public void actionPerformed(java.awt.event.ActionEvent event) {
+                    moveChannel(position, -1);
+                }
+            });
+            row.add(up);
+            JButton down = new JButton("▼");
+            down.setToolTipText("Move this channel one panel to the right");
+            down.setEnabled(i < context.channelSettings.size() - 1);
+            down.addActionListener(new java.awt.event.ActionListener() {
+                @Override
+                public void actionPerformed(java.awt.event.ActionEvent event) {
+                    moveChannel(position, 1);
+                }
+            });
+            row.add(down);
             channelsPanel.add(row);
         }
         channelsPanel.revalidate();

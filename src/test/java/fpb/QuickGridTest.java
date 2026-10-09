@@ -145,7 +145,7 @@ public class QuickGridTest {
     }
 
     @Test(expected = IllegalArgumentException.class)
-    public void quickGridRejectsExplicitGuidedChannelSettings() throws Exception {
+    public void quickGridRejectsExplicitGuidedChannelRanges() throws Exception {
         FPB.run(FPBParameters.builder(basicFolder())
                 .quickGrid(true)
                 .channel(1, "Signal", ChannelColour.GREEN, 123, 456)
@@ -153,7 +153,7 @@ public class QuickGridTest {
     }
 
     @Test(expected = IllegalArgumentException.class)
-    public void macroQuickGridRejectsExplicitGuidedChannelSettings() {
+    public void macroQuickGridRejectsExplicitGuidedChannelRanges() {
         FPBMacroOptionsParser.parse("folder_b64=" + MacroDataCodec.encodeString(
                 basicFolder().getAbsolutePath())
                 + " quick_grid channels=1 channel_names=Signal "
@@ -194,7 +194,7 @@ public class QuickGridTest {
     }
 
     @Test
-    public void recordedQuickGridMacroOmitsDerivedChannelSettings()
+    public void recordedQuickGridMacroOmitsChannelsTheUserNeverChose()
             throws Exception {
         QuickGrid.Result quick = QuickGrid.run(basicFolder(), false);
         String macro = FPBMacroOptions.fromContext(contextFor(quick), null)

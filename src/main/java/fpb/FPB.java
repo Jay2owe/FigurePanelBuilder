@@ -57,7 +57,7 @@ public final class FPB {
             return quickGrid(parameters, progress);
         }
         ImageLoader.LoadResult loaded = new ImageLoader(150, 4)
-                .loadFolder(parameters.folder(), parameters.recursive(),
+                .loadSources(includedSources(parameters),
                         ImageLoader.ZMode.fromString(parameters.zMode()), progress);
         List<ImageSource> sources = sources(loaded.planeCache());
         MetadataTable table = metadataTable(parameters, sources);
@@ -90,8 +90,10 @@ public final class FPB {
     private static FPBResult quickGrid(FPBParameters parameters,
             ProgressCallback progress) throws IOException {
         QuickGrid.Result quick = QuickGrid.run(parameters.folder(),
-                parameters.recursive(),
-                ImageLoader.ZMode.fromString(parameters.zMode()), progress);
+                includedSources(parameters),
+                ImageLoader.ZMode.fromString(parameters.zMode()),
+                parameters.channels().isEmpty() ? null : channelSpecs(parameters),
+                progress);
         validateCalibrationOverrides(parameters, quick.table());
         PanelConfig config = parameters.panelConfig() == null
                 ? quick.panelConfig().toBuilder()
@@ -196,6 +198,26 @@ public final class FPB {
         }
         return Statistic.brightestOnePercentMeans(histograms, indices, names,
                 ImageLoader.ZMode.fromString(parameters.zMode()));
+    }
+
+    /** Discovered images minus those the user unticked when recording. */
+    static List<ImageSource> includedSources(FPBParameters parameters)
+            throws IOException {
+        List<ImageSource> discovered = ImageLoader.discoverImageSources(
+                parameters.folder(), parameters.recursive());
+        if (parameters.excludedImages().isEmpty()) return discovered;
+        java.util.Set<String> excluded = new java.util.HashSet<String>(
+                parameters.excludedImages());
+        MetadataTable named = MetadataTable.emptySources(parameters.folder(),
+                discovered);
+        List<ImageSource> kept = new ArrayList<ImageSource>();
+        for (MetadataRow row : named.rows()) {
+            if (!excluded.contains(FPBParameters.normalizeImageId(
+                    named.csvFileName(row)))) {
+                kept.add(row.source);
+            }
+        }
+        return kept;
     }
 
     private static List<ImageSource> sources(PlaneCache planes) {
