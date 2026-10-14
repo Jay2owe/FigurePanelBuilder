@@ -41,7 +41,7 @@ jobs:
       DEFAULT_UPLOAD_USER: ""
       ARTIFACT_GLOB: "target/FigurePanelBuilder-0.3.0.jar"
       RELEASE_ASSET_URL: "https://github.com/Jay2owe/FigurePanelBuilder/releases/download/v0.3.0/FigurePanelBuilder-0.3.0.jar"
-      RELEASE_ASSET_SHA256: "f8549d99ee1e68a0c62919adfee51537782a708e3292233b24869160c81098b5"
+      RELEASE_ASSET_SHA256: "0e6ab1eacf5a6009e17c57857f26fb3dc6029de0d64c27ca0be3cd8c375ba6ae"
       INSTALL_DIR: "plugins"
       ARTIFACT_NAME: ""
       REPLACE_GLOB: "plugins/FigurePanelBuilder-*.jar"
