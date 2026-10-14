@@ -20,6 +20,48 @@ import static org.junit.Assert.assertTrue;
 public class FPBWizardTest {
 
     @Test
+    public void headerNavigationCommitsMetadataAndRejectsNewlyInvalidatedDestination()
+            throws Exception {
+        org.junit.Assume.assumeFalse(java.awt.GraphicsEnvironment.isHeadless());
+        javax.swing.SwingUtilities.invokeAndWait(new Runnable() {
+            @Override public void run() {
+                FPBWizard wizard = new FPBWizard();
+                javax.swing.JDialog dialog = null;
+                try {
+                    java.lang.reflect.Field dialogField = FPBWizard.class.getDeclaredField("dialog");
+                    dialogField.setAccessible(true);
+                    dialog = (javax.swing.JDialog) dialogField.get(wizard);
+                    java.lang.reflect.Field stepsField = FPBWizard.class.getDeclaredField("steps");
+                    stepsField.setAccessible(true);
+                    Step1Images images = (Step1Images) ((WizardStep[]) stepsField.get(wizard))[0];
+                    images.chooseFolder(new java.io.File("src/test/resources/fixtures/basic"));
+                    java.lang.reflect.Field maximum = FPBWizard.class.getDeclaredField("maxCompletedIndex");
+                    maximum.setAccessible(true);
+                    maximum.setInt(wizard, 3);
+                    assertTrue(images.tablePanel().table().editCellAt(0, 2));
+                    ((javax.swing.JTextField) images.tablePanel().table().getEditorComponent())
+                            .setText("Renamed group");
+                    java.lang.reflect.Method navigate = FPBWizard.class.getDeclaredMethod(
+                            "navigateTo", int.class);
+                    navigate.setAccessible(true);
+                    navigate.invoke(wizard, 0);
+                    assertTrue(images.tablePanel().table().isEditing());
+                    navigate.invoke(wizard, 3);
+                    assertFalse(images.tablePanel().table().isEditing());
+                    assertEquals("Renamed group", images.metadataTable().rows().get(0).group);
+                    assertEquals(0, wizard.currentStepIndex());
+                    assertEquals(0, maximum.getInt(wizard));
+                } catch (ReflectiveOperationException failure) {
+                    throw new AssertionError(failure);
+                } finally {
+                    wizard.context().imagePreloader.close();
+                    if (dialog != null) dialog.dispose();
+                }
+            }
+        });
+    }
+
+    @Test
     public void backButtonRuleMatchesWizardContract() {
         assertFalse(FPBWizard.backVisibleForStep(0));
         assertTrue(FPBWizard.backVisibleForStep(1));

@@ -4,6 +4,22 @@ All notable changes to Figure Panel Builder will be documented here. The format 
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-10-14
+
+### Fixed
+
+- Back and header navigation commit active editors and preserve image picks, contrast ranges,
+  orientations and layout where source identities remain valid.
+- Assembled PNG and TIFF exports sample original panel images directly at final export scale,
+  avoiding premature reduction and maximum-pixel pooling.
+- Group-title edits survive switching groups before the delayed preview update.
+
+### Changed
+
+- Reuse unchanged Layout previews on revisits; settings changes and missing files trigger a rebuild.
+- Fit the whole figure by default and scroll settings independently beside it.
+- Add executable project checks, a software alignment audit and reproducible paired speed measurements.
+
 ## [0.2.0] - 2026-10-09
 
 ### Added
@@ -59,3 +75,5 @@ All notable changes to Figure Panel Builder will be documented here. The format 
   100%/150%/200% inspection zoom.
 - Canvas-style Layout navigation with pointer-anchored Ctrl+wheel zoom, drag panning, and
   Shift+wheel horizontal scrolling.
+
+[0.3.0]: https://github.com/Jay2owe/FigurePanelBuilder/compare/v0.2.0...v0.3.0

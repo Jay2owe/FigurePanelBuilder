@@ -175,6 +175,13 @@ public final class Step3Chooser implements WizardStep, AutoCloseable {
     }
 
     @Override
+    public boolean commitEdits() {
+        if (rail != null) rail.commitPendingFieldEdits();
+        if (data != null && rail != null) publishLayoutState();
+        return true;
+    }
+
+    @Override
     public void close() {
         if (loadingWorker != null) loadingWorker.cancel(true);
         if (picksWorker != null) picksWorker.cancel(true);
@@ -428,8 +435,6 @@ public final class Step3Chooser implements WizardStep, AutoCloseable {
         context.chooserData = null;
         context.selectedRowsByGroup.clear();
         context.layoutChannelRequests.clear();
-        context.panelConfig = null;
-        context.groupLayoutRows.clear();
         context.layoutPanelRecords.clear();
     }
 
@@ -555,6 +560,15 @@ public final class Step3Chooser implements WizardStep, AutoCloseable {
 
         rail = new ChannelRail(data.channelSpecs(), data.histograms(),
                 data.subjectStats().statisticName());
+        if (context != null && context.zHandling.equals(context.savedZHandling)) {
+            for (FPBRenderer.ChannelRequest saved : context.savedChannelRequests) {
+                for (ChannelRail.ChannelSpec spec : data.channelSpecs()) {
+                    if (spec.channelIndex() == saved.channelIndex()) {
+                        rail.restoreRange(spec.channelIndex(), saved.range());
+                    }
+                }
+            }
+        }
         rail.setPreferredSize(new java.awt.Dimension(240, 520));
         rail.setListener(new ChannelRail.Listener() {
             @Override public void rangeChanged(boolean adjusting) {
@@ -585,6 +599,7 @@ public final class Step3Chooser implements WizardStep, AutoCloseable {
                     Step3Chooser.this.orientationChanged(row);
                 }
             });
+            selectInitialPick(group, grid);
             grid.subjectList().addListSelectionListener(new ListSelectionListener() {
                 @Override public void valueChanged(ListSelectionEvent event) {
                     if (!event.getValueIsAdjusting()) selectionChanged();
@@ -592,7 +607,6 @@ public final class Step3Chooser implements WizardStep, AutoCloseable {
             });
             gridsByGroup.put(group, grid);
             tabs.addTab(group, grid);
-            selectInitialPick(group, grid);
         }
         tabs.addChangeListener(new javax.swing.event.ChangeListener() {
             @Override
@@ -697,6 +711,15 @@ public final class Step3Chooser implements WizardStep, AutoCloseable {
         if (suggestion != null) {
             for (int i = 0; i < grid.rowCount(); i++) {
                 if (suggestion.isSuggested(grid.rowAt(i).subject())) {
+                    selected = i;
+                    break;
+                }
+            }
+        }
+        RowImage.SubjectRow saved = context == null ? null : context.savedPicks.get(group);
+        if (saved != null) {
+            for (int i = 0; i < grid.rowCount(); i++) {
+                if (grid.rowAt(i).imageId().equals(saved.imageId())) {
                     selected = i;
                     break;
                 }
@@ -889,6 +912,32 @@ public final class Step3Chooser implements WizardStep, AutoCloseable {
                 new LinkedHashMap<String, RowImage.SubjectRow>(picksByGroup);
         context.layoutChannelRequests =
                 new ArrayList<FPBRenderer.ChannelRequest>(rail.channelRequests());
+        if (context.panelConfig != null && !context.savedChannelRequests.isEmpty()) {
+            List<String> order = new ArrayList<String>();
+            for (String name : context.panelConfig.channelOrder()) {
+                if ("Merge".equals(name)) {
+                    order.add(name);
+                    continue;
+                }
+                for (FPBRenderer.ChannelRequest old : context.savedChannelRequests) {
+                    if (!old.name().equals(name)) continue;
+                    for (FPBRenderer.ChannelRequest current : context.layoutChannelRequests) {
+                        if (current.channelIndex() == old.channelIndex()) order.add(current.name());
+                    }
+                }
+            }
+            for (FPBRenderer.ChannelRequest current : context.layoutChannelRequests) {
+                if (!order.contains(current.name())) {
+                    int merge = order.indexOf("Merge");
+                    order.add(merge < 0 ? order.size() : merge, current.name());
+                }
+            }
+            context.panelConfig = context.panelConfig.toBuilder().channelOrder(order).build();
+        }
+        context.savedPicks = new LinkedHashMap<String, RowImage.SubjectRow>(picksByGroup);
+        context.savedChannelRequests = new ArrayList<FPBRenderer.ChannelRequest>(
+                context.layoutChannelRequests);
+        context.savedZHandling = context.zHandling;
     }
 
     private static String join(List<String> values) {

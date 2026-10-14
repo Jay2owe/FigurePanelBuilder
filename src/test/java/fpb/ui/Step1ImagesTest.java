@@ -206,6 +206,8 @@ public class Step1ImagesTest {
                 JTextField editor = (JTextField) step.tablePanel().table()
                         .getEditorComponent();
                 editor.setText("");
+                assertTrue(step.commitEdits());
+                assertFalse(step.tablePanel().table().isEditing());
                 advance[0] = step.canAdvance();
             }
         });

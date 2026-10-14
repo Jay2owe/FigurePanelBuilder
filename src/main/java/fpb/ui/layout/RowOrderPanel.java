@@ -21,6 +21,7 @@ import javax.swing.ListSelectionModel;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.GridLayout;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -44,9 +45,10 @@ public final class RowOrderPanel extends JPanel {
         list.setCellRenderer(new Renderer());
         if (model.getSize() > 0) list.setSelectedIndex(0);
         JScrollPane scroll = new JScrollPane(list);
-        scroll.setPreferredSize(new Dimension(260, 132));
+        int line = list.getFontMetrics(list.getFont()).getHeight();
+        scroll.setPreferredSize(new Dimension(line * 16, line * 6));
         add(scroll, BorderLayout.CENTER);
-        add(buttons(), BorderLayout.EAST);
+        add(buttons(), BorderLayout.SOUTH);
     }
 
     public void setOnChange(Runnable onChange) {
@@ -126,7 +128,7 @@ public final class RowOrderPanel extends JPanel {
     private JPanel buttons() {
         JPanel buttons = new JPanel();
         buttons.setOpaque(false);
-        buttons.setLayout(new BoxLayout(buttons, BoxLayout.Y_AXIS));
+        buttons.setLayout(new GridLayout(0, 2, 4, 4));
         JButton up = button("Move up");
         JButton down = button("Move down");
         JButton rowUp = button("Row +");
@@ -134,15 +136,10 @@ public final class RowOrderPanel extends JPanel {
         JButton oneRow = button("All in one row");
         JButton eachRow = button("One group per row");
         buttons.add(up);
-        buttons.add(Box.createVerticalStrut(4));
         buttons.add(down);
-        buttons.add(Box.createVerticalStrut(10));
         buttons.add(rowUp);
-        buttons.add(Box.createVerticalStrut(4));
         buttons.add(rowDown);
-        buttons.add(Box.createVerticalStrut(10));
         buttons.add(oneRow);
-        buttons.add(Box.createVerticalStrut(4));
         buttons.add(eachRow);
 
         up.addActionListener(e -> moveSelected(-1));

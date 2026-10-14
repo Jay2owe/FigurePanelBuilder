@@ -54,8 +54,7 @@ an ImageJ or Bio-Formats open call already in progress must return before cancel
 
 ## Use In Fiji
 
-Figure Panel Builder requires [Fiji](https://fiji.sc/) with Bio-Formats. Download
-`FigurePanelBuilder-0.2.0.jar` from the
+Figure Panel Builder requires [Fiji](https://fiji.sc/) with Bio-Formats. Download `FigurePanelBuilder-0.3.0.jar` from the
 [latest GitHub release](https://github.com/Jay2owe/FigurePanelBuilder/releases/latest), copy it into
 Fiji's `plugins` folder, restart Fiji, then run
 `Plugins > Figure Panel Builder`. The guided wizard supports folder loading, metadata labelling,
@@ -80,8 +79,9 @@ the image grid, or drag the selected label's yellow handle to resize that label 
 horizontal/rotated orientation, and numeric size/distance controls remain available at the side.
 Group titles can also be renamed directly in the main Layout controls and aligned left, middle, or
 right within each group block; the same alignment control remains available in the external-label editor.
-The Layout preview is rendered at 2x quality and opens at 100% with scrollbars; Fit, 150%, and
-200% zoom modes are available for whole-figure or detail inspection. Ctrl+mouse-wheel zooms
+The Layout preview is rendered at 2x quality and opens fitted to the canvas; 100%, 150%, and
+200% zoom modes are available for detail inspection. Settings scroll beside the figure.
+Ctrl+mouse-wheel zooms
 continuously around the pointer, dragging pans the canvas, and Shift+wheel scrolls horizontally.
 
 For scripted use, run the plugin with explicit macro options, including one min and max range for
@@ -113,10 +113,21 @@ export calls.
 The project targets Java 8 bytecode for Fiji compatibility. The only compile-scope dependency is
 `net.imagej:ij`; JUnit is test-scoped.
 
+For development checks, install `scripts/contracts-requirements.txt`, then run
+`python scripts/verify.py` for the focused checks or `python scripts/verify.py --group release`
+for ownership checks and the complete Maven build. These Python tools are development-only;
+the Fiji plugin retains its Java-only runtime.
+
+Assembled PNG and TIFF figures sample the full-resolution panel images directly at the chosen
+export scale. Increasing export scale adds output pixels; changing dpi sets printed size.
+Images are not first reduced to the layout tile size or combined by taking block maxima.
+
 ## License and Citation
 
 Figure Panel Builder is released under the [BSD 3-Clause License](LICENSE). Citation metadata is
 provided in [CITATION.cff](CITATION.cff).
 
-> Malcolm, J. (2026). *Figure Panel Builder* (Version 0.2.0)
-> [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.23251059
+> Malcolm, J. (2026). *Figure Panel Builder* (Version 0.3.0)
+> [Computer software]. https://github.com/Jay2owe/FigurePanelBuilder
+
+

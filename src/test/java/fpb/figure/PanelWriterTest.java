@@ -292,6 +292,54 @@ public class PanelWriterTest {
     }
 
     @Test
+    public void scaledFigureKeepsOriginalPixelsAndDownsamplingDoesNotSelectBrightest()
+            throws Exception {
+        BufferedImage original = new BufferedImage(320, 320, BufferedImage.TYPE_INT_RGB);
+        for (int y = 0; y < original.getHeight(); y++) {
+            for (int x = 0; x < original.getWidth(); x++) {
+                original.setRGB(x, y, ((x + y) % 2 == 0 ? Color.BLACK : Color.WHITE).getRGB());
+            }
+        }
+        File source = temp.newFile("fine-detail.png");
+        ImageIO.write(original, "png", source);
+        PanelRecord record = record(source, "Control", "S1", "sec1", "DAPI",
+                320, 320, 0.5, CalibrationCheck.CalibrationSource.USER_ENTERED);
+        for (boolean grouped : new boolean[] { false, true }) {
+            for (int scale : new int[] { 1, 4 }) {
+                PanelConfig.Builder builder = PanelConfig.builder().cellSizePx(80)
+                        .channelOrder(Arrays.asList("DAPI"))
+                        .channelHeaderVisible(false).groupHeaderVisible(false)
+                        .rowLabelVisible(false).annotateOverviewPanel(false)
+                        .annotateIndividualPanels(false).exportScale(scale);
+                if (grouped) builder.groupLayoutRows(Arrays.asList(Arrays.asList("Control")));
+                PanelConfig config = builder.build();
+                FigureWriter.FigureOutput output = new FigureWriter().writeFigure(
+                        temp.getRoot(), "Detail-" + grouped + "-" + scale,
+                        Arrays.asList(record), config, true, false, false,
+                        FigureWriter.NEVER_CANCELLED);
+                BufferedImage exported = ImageIO.read(output.figurePng());
+                java.awt.Rectangle box = new java.awt.Rectangle(
+                        config.marginPx(), config.marginPx(), config.cellSizePx(), config.cellSizePx());
+                int left = box.x * scale;
+                int top = box.y * scale;
+                if (scale == 4) {
+                    assertEquals(original.getWidth(), box.width * scale);
+                    for (int y = 0; y < original.getHeight(); y++) {
+                        for (int x = 0; x < original.getWidth(); x++) {
+                            assertEquals("Native-size export must retain individual source pixels",
+                                    original.getRGB(x, y), exported.getRGB(left + x, top + y));
+                        }
+                    }
+                } else {
+                    int grey = exported.getRGB(left + 20, top + 20) & 0xff;
+                    assertTrue("Reduced checkerboard should blend, rather than become white",
+                            grey >= 127 && grey <= 128);
+                }
+            }
+        }
+    }
+
+    @Test
     public void overviewAnnotatesWhenIndividualAnnotationIsEnabledButNotWritten()
             throws Exception {
         File source = writeSource("annotation-fallback.png", Color.BLACK, 100, 60);

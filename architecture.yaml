@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "project": "FigurePanelBuilder",
+  "profile": "scientific-image-app",
+  "source_root": "src/main/java",
+  "required_paths": [
+    "scripts/verify.py",
+    "scripts/project_contract.py",
+    "architecture.schema.json",
+    "architecture.lock.json",
+    "src/main/java/fpb", "src/test/java/fpb", "src/test/resources/fixtures",
+    "docs/software-alignment.md"
+  ],
+  "boundaries": [],
+  "components": [],
+  "checks": [
+    {
+      "id": "java-ownership", "kind": "command",
+      "argv": ["{python}", "scripts/check_project.py", "structure"],
+      "groups": ["fast", "release"], "timeout_seconds": 30,
+      "reason": "Java source ownership is checked by a project adapter; shared symbol bindings support Python/JavaScript only."
+    },
+    {
+      "id": "focused-java-tests", "kind": "command",
+      "argv": ["{python}", "scripts/check_project.py", "fast"],
+      "groups": ["fast"], "timeout_seconds": 180
+    },
+    {
+      "id": "complete-java-package", "kind": "command",
+      "argv": ["{python}", "scripts/check_project.py", "release"],
+      "groups": ["release"], "timeout_seconds": 600
+    }
+  ]
+}

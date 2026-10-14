@@ -1,6 +1,8 @@
 # Build output
 target/
 tools-build/
+__pycache__/
+*.pyc
 .mvn/wrapper/maven-dist/
 
 # IDE
@@ -17,3 +19,10 @@ tools-build/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Local agent context and generated knowledge graph
+.claude/
+.codex/
+AGENTS.md
+CLAUDE*.md
+graphify-out/

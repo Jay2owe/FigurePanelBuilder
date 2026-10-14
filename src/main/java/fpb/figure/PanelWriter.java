@@ -8,7 +8,6 @@
  */
 package fpb.figure;
 
-import fpb.io.Binner;
 import fpb.util.CsvSupport;
 import fpb.util.IoUtils;
 import fpb.util.CancellationCheck;
@@ -475,8 +474,10 @@ public final class PanelWriter {
         int drawH = Math.max(1, (int) Math.round(image.getHeight() * scale));
         int drawX = x + (cell - drawW) / 2;
         int drawY = y + (cell - drawH) / 2;
-        BufferedImage fitted = Binner.maxBin(image, drawW, drawH);
-        g.drawImage(fitted, drawX, drawY, null);
+        // Let the final canvas transform sample the original once. Reducing to
+        // logical tile pixels first discards detail even on a scaled export;
+        // taking block maxima also brightens the raster relative to the SVG.
+        g.drawImage(image, drawX, drawY, drawW, drawH, null);
         if (report != null) {
             report.addImageBox(record, new Rectangle(drawX, drawY, drawW, drawH));
         }

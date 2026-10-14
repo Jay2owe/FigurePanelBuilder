@@ -142,9 +142,15 @@ public final class ChannelRail extends JPanel {
     }
 
     public void lockChannelForTest(int channelIndex, int min, int max) {
+        restoreRange(channelIndex, new DisplayRange(min, max));
+    }
+
+    /** Restore a user's range by source channel, independent of its name or order. */
+    public void restoreRange(int channelIndex, DisplayRange range) {
+        if (range == null || !range.isValid()) return;
         for (ChannelBlock block : blocks) {
             if (block.state.spec.channelIndex() == channelIndex) {
-                block.setProposed(min, max, false);
+                block.setProposed(range.min(), range.max(), false);
                 block.lockCurrentProposal();
                 return;
             }

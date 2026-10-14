@@ -138,6 +138,8 @@ public final class Step5Export implements WizardStep, AutoCloseable {
         panel.add(progressRow(), BorderLayout.SOUTH);
         build.addActionListener(e -> startExport());
         panels.setToolTipText("Save full-resolution per-panel PNGs and one calibrated channel-only TIFF hyperstack per chosen image in the selected formats.");
+        dpi.setToolTipText("Sets printed size. Increase Export scale to add pixels to the assembled figure.");
+        exportScale.setToolTipText("Render from the full-resolution panels: 4x gives four times as many pixels along each side as 1x.");
         allProjectPng.setToolTipText("Export every logical project image, including every container series, as lossless full-resolution channel and merge PNGs.");
         allProjectTiffStacks.setToolTipText("Export one calibrated, display-adjusted RGB TIFF stack per logical project image, with one slice per selected channel.");
         cancel.addActionListener(e -> cancelExport());
@@ -224,6 +226,9 @@ public final class Step5Export implements WizardStep, AutoCloseable {
         size.add(new JLabel("Export scale"));
         size.add(exportScale);
         form.add(size);
+        JPanel sizeHelp = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        sizeHelp.add(new JLabel("Export scale controls pixel dimensions; dpi controls printed size."));
+        form.add(sizeHelp);
 
         JPanel formats = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         formats.add(new JLabel("Formats"));

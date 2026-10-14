@@ -79,6 +79,9 @@ public class Step3ChooserTest {
                 public void run() {
                     chooser.setData(data);
                     chooser.channelRailForTest().lockChannelForTest(0, 0, 5000);
+                    fpb.render.DisplayRange range = chooser.channelRailForTest().lockedRanges().get(0);
+                    assertTrue(range.max() - range.min() > 2);
+                    chooser.channelRailForTest().lockChannelForTest(0, range.min() + 1, range.max() - 1);
                     chooser.selectSubjectForTest("Control", "S2");
                 }
             });
@@ -91,6 +94,35 @@ public class Step3ChooserTest {
                     .plotCanvasCountForTest());
             assertEquals("S2", chooser.comparisonPanelForTest()
                     .chosenSubjectsForTest().get("Control"));
+
+            final fpb.render.DisplayRange savedRange = context.layoutChannelRequests.get(0).range();
+            SwingUtilities.invokeAndWait(new Runnable() {
+                @Override public void run() {
+                    context.panelConfig = fpb.figure.PanelConfig.builder()
+                            .cellSizePx(333)
+                            .channelOrder(Arrays.asList("DAPI", "Signal 1", "Signal 2", "Merge"))
+                            .build();
+                    context.invalidateGuidedDownstream(1);
+                    assertEquals(null, context.chooserData);
+                    assertTrue(context.selectedRowsByGroup.isEmpty());
+                    List<ChannelRail.ChannelSpec> changed = Arrays.asList(
+                            new ChannelRail.ChannelSpec(0, "Nuclei", fpb.render.ChannelColour.GREEN),
+                            new ChannelRail.ChannelSpec(2, "Signal 2", null));
+                    chooser.setData(new Step3Chooser.Data(table, loaded.planeCache(),
+                            loaded.histogramCache(), changed, subjects, suggestions,
+                            SelectionRecord.from(subjects, groups, suggestions)));
+                    assertTrue(chooser.canAdvance());
+                    assertEquals("S2", context.selectedRowsByGroup.get("Control").subject());
+                    assertEquals(savedRange.min(), context.layoutChannelRequests.get(0).range().min());
+                    assertEquals(savedRange.max(), context.layoutChannelRequests.get(0).range().max());
+                    assertEquals("Nuclei", context.layoutChannelRequests.get(0).name());
+                    assertEquals(fpb.render.ChannelColour.GREEN,
+                            context.layoutChannelRequests.get(0).colour());
+                    assertEquals(333, context.panelConfig.cellSizePx());
+                    assertEquals(Arrays.asList("Nuclei", "Signal 2", "Merge"),
+                            context.panelConfig.channelOrder());
+                }
+            });
         } finally {
             chooser.close();
         }

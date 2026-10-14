@@ -365,7 +365,7 @@ public final class FPBWizard {
 
     private void advance() {
         WizardStep step = steps[stepIndex];
-        if (!step.canAdvance()) {
+        if (!step.commitEdits() || !step.canAdvance()) {
             JOptionPane.showMessageDialog(dialog,
                     "Complete this step before continuing.",
                     "Figure Panel Builder", JOptionPane.INFORMATION_MESSAGE);
@@ -402,7 +402,13 @@ public final class FPBWizard {
     }
 
     private void navigateTo(int requestedIndex) {
-        showStep(navigationTarget(context.quickGridRequested, requestedIndex));
+        int target = navigationTarget(context.quickGridRequested, requestedIndex);
+        if (target == stepIndex) return;
+        if (!steps[stepIndex].commitEdits()) return;
+        // Committing a table cell can invalidate a previously enabled step jump.
+        if (target > stepIndex
+                && (!steps[stepIndex].canAdvance() || target > maxCompletedIndex)) return;
+        showStep(target);
     }
 
     private void updateButtons() {
@@ -571,6 +577,11 @@ public final class FPBWizard {
                 new ArrayList<List<String>>();
         public List<PanelRecord> layoutPanelRecords =
                 new ArrayList<PanelRecord>();
+        public Map<String, RowImage.SubjectRow> savedPicks =
+                new LinkedHashMap<String, RowImage.SubjectRow>();
+        public List<FPBRenderer.ChannelRequest> savedChannelRequests =
+                new ArrayList<FPBRenderer.ChannelRequest>();
+        public String savedZHandling;
 
         private InvalidationListener invalidationListener;
 
@@ -583,12 +594,15 @@ public final class FPBWizard {
             if (sourceStepIndex <= 0) {
                 calibrationOverrides.clear();
                 imageOrientations.clear();
+                savedPicks.clear();
+                savedChannelRequests.clear();
+                savedZHandling = null;
+                panelConfig = null;
+                groupLayoutRows.clear();
             }
             chooserData = null;
             selectedRowsByGroup.clear();
             layoutChannelRequests.clear();
-            panelConfig = null;
-            groupLayoutRows.clear();
             layoutPanelRecords.clear();
             recordedMetadataCsv = null;
             if (invalidationListener != null) {

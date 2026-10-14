@@ -23,6 +23,11 @@ public interface WizardStep {
 
     boolean canAdvance();
 
+    /** Commit live editors before either forward or backward navigation. */
+    default boolean commitEdits() {
+        return true;
+    }
+
     /** Invoked by the wizard's primary button on the final step. */
     default void onPrimaryAction() {
         // Most steps only navigate; final action steps may override.

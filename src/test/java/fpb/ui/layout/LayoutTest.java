@@ -383,6 +383,45 @@ public class LayoutTest {
             assertEquals("sec1", records.get(0).section());
             assertEquals("sec2", records.get(2).section());
             assertEquals("sec3", records.get(4).section());
+            File firstPreview = records.get(0).imageFile();
+            RowOrderPanel controls = layout.rowOrderPanelForTest();
+            layout.onShow();
+            assertEquals(firstPreview, layout.previewRecordsForTest().get(0).imageFile());
+            assertTrue("Revisiting must retain live controls", controls == layout.rowOrderPanelForTest());
+            context.layoutChannelRequests.set(0, new FPBRenderer.ChannelRequest(0,
+                    "DAPI", ChannelColour.BLUE, new DisplayRange(10, 60000)));
+            layout.onShow();
+            assertFalse("Changed contrast must discard the old preview", firstPreview.isFile());
+            File rangePreview = layout.previewRecordsForTest().get(0).imageFile();
+            context.calibrationOverrides.put(table.csvFileName(table.rows().get(0)),
+                    new fpb.figure.CalibrationOverride(0.3, 0.4));
+            layout.onShow();
+            assertFalse("Changed calibration must discard the old preview", rangePreview.isFile());
+            File missing = layout.previewRecordsForTest().get(0).imageFile();
+            assertTrue(missing.delete());
+            layout.onShow();
+            assertTrue("Missing preview files must be rebuilt",
+                    layout.previewRecordsForTest().get(0).imageFile().isFile());
+            java.lang.reflect.Field textField = Step4Layout.class.getDeclaredField("groupLabelText");
+            textField.setAccessible(true);
+            final javax.swing.JTextField label = (javax.swing.JTextField) textField.get(layout);
+            java.lang.reflect.Field groupField = Step4Layout.class.getDeclaredField("groupLabelGroup");
+            groupField.setAccessible(true);
+            final javax.swing.JComboBox<?> groupChoice =
+                    (javax.swing.JComboBox<?>) groupField.get(layout);
+            javax.swing.SwingUtilities.invokeAndWait(new Runnable() {
+                @Override public void run() {
+                    label.setText("Edited control");
+                    // Navigation must flush the delayed text edit immediately.
+                    assertTrue(layout.commitEdits());
+                    assertEquals("Edited control", context.panelConfig.externalLabelText(
+                            PanelConfig.ExternalLabelKind.GROUP, "Control", "Control"));
+                    label.setText("Second edit");
+                    groupChoice.setSelectedItem(null);
+                    assertEquals("Second edit", context.panelConfig.externalLabelText(
+                            PanelConfig.ExternalLabelKind.GROUP, "Control", "Control"));
+                }
+            });
         } finally {
             layout.close();
         }

@@ -39,6 +39,38 @@ public class EndToEndTest {
     public TemporaryFolder temp = new TemporaryFolder();
 
     @Test
+    public void readmeJavaExampleRunsUnchangedOnItsNamedInput() throws Exception {
+        File folder = temp.newFolder("example");
+        File output = temp.newFolder("example-output");
+        Files.copy(new File(basicFixture(), "Control_S3.tif").toPath(),
+                new File(folder, "Control_S3.tif").toPath());
+        String readme = new String(Files.readAllBytes(new File("README.md").toPath()),
+                StandardCharsets.UTF_8);
+        java.util.regex.Matcher example = java.util.regex.Pattern.compile(
+                "```java\\s*\\n(.*?)```", java.util.regex.Pattern.DOTALL).matcher(readme);
+        assertTrue("README must retain its public Java example", example.find());
+        File compiled = temp.newFolder("compiled-readme");
+        File source = new File(compiled, "ReadmeExample.java");
+        String java = "import fpb.*; import fpb.render.ChannelColour; import java.io.File;\n"
+                + "public class ReadmeExample { public static void run(File folder, File output) throws Exception {\n"
+                + example.group(1) + "\n}}\n";
+        Files.write(source.toPath(), java.getBytes(StandardCharsets.UTF_8));
+        javax.tools.JavaCompiler compiler = javax.tools.ToolProvider.getSystemJavaCompiler();
+        assertNotNull("Development tests require a JDK", compiler);
+        assertEquals(0, compiler.run(null, null, null, "-classpath",
+                System.getProperty("java.class.path"), "-d", compiled.getAbsolutePath(),
+                source.getAbsolutePath()));
+        try (java.net.URLClassLoader loader = new java.net.URLClassLoader(
+                new java.net.URL[] { compiled.toURI().toURL() }, getClass().getClassLoader())) {
+            loader.loadClass("ReadmeExample").getMethod("run", File.class, File.class)
+                    .invoke(null, folder, output);
+        }
+        File figure = new File(new File(output, OutputTree.ROOT_DIR), "Figure");
+        assertFileExists(new File(figure, "figure.png"));
+        assertSvgHasEditableText(new File(figure, "figure.svg"));
+    }
+
+    @Test
     public void endToEnd_basicFixtureProducesCompleteOutputTree() throws Exception {
         File output = temp.newFolder("output");
         FPBParameters params = FPBParameters.builder(basicFixture())

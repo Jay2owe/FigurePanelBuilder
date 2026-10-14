@@ -19,8 +19,10 @@ jobs:
           java-version: '8'
           distribution: 'zulu'
           cache: maven
-      - name: Build
-        run: bash mvnw clean package
+      - name: Install development checks
+        run: python3 -m pip install -r scripts/contracts-requirements.txt
+      - name: Verify and build
+        run: python3 scripts/verify.py --group release
       - name: Upload jar
         uses: actions/upload-artifact@v7
         with:

@@ -304,6 +304,11 @@ public final class Step1Images implements WizardStep {
         return included.fileCount() > 0 && included.unassignedCount() == 0;
     }
 
+    @Override
+    public boolean commitEdits() {
+        return tablePanel.commitActiveEdit();
+    }
+
     /** Ticks or unticks the selected images, or every image when requested. */
     public int setImagesIncluded(boolean included, boolean allRows) {
         return tablePanel.setIncluded(included, allRows);

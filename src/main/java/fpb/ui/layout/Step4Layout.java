@@ -12,6 +12,7 @@ import fpb.figure.CalibrationCheck;
 import fpb.figure.CalibrationOverride;
 import fpb.figure.ImageOrientation;
 import fpb.figure.PanelConfig;
+import fpb.figure.PanelConfigCodec;
 import fpb.figure.PanelRecord;
 import fpb.figure.PanelWriter;
 import fpb.meta.MetadataRow;
@@ -91,6 +92,7 @@ public final class Step4Layout implements WizardStep, AutoCloseable {
             new FitComboBox<String>(new String[] { "Left", "Middle", "Right" });
     private final JButton originalGroupLabel = new JButton("Use original");
     private final Timer groupLabelUpdateTimer;
+    private String editedGroup = "";
 
     private RowOrderPanel rowOrderPanel;
     private PanelConfig config;
@@ -100,6 +102,8 @@ public final class Step4Layout implements WizardStep, AutoCloseable {
     private boolean syncing;
     private boolean syncingGroupLabelControls;
     private BufferedImage previewFigure;
+    private Step3Chooser.Data renderedData;
+    private String renderedState = "";
     private List<PanelWriter.ImageBox> previewImageBoxes =
             Collections.emptyList();
     private PanelWriter.ImageBox hoveredImageBox;
@@ -131,7 +135,17 @@ public final class Step4Layout implements WizardStep, AutoCloseable {
         panel.add(previewScroll, BorderLayout.CENTER);
         side.setOpaque(false);
         side.setLayout(new BoxLayout(side, BoxLayout.Y_AXIS));
-        panel.add(side, BorderLayout.EAST);
+        JScrollPane settingsScroll = new JScrollPane(side,
+                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+                JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        settingsScroll.setBorder(BorderFactory.createEmptyBorder());
+        settingsScroll.setOpaque(false);
+        settingsScroll.getViewport().setOpaque(false);
+        int characterWidth = side.getFontMetrics(side.getFont()).charWidth('M');
+        settingsScroll.setPreferredSize(new Dimension(characterWidth * 40, 1));
+        settingsScroll.getVerticalScrollBar().setUnitIncrement(
+                side.getFontMetrics(side.getFont()).getHeight());
+        panel.add(settingsScroll, BorderLayout.EAST);
         size.setForeground(MUTED);
         JPanel footer = new JPanel(new BorderLayout(8, 0));
         footer.setOpaque(false);
@@ -140,7 +154,7 @@ public final class Step4Layout implements WizardStep, AutoCloseable {
         zoom.setOpaque(false);
         zoom.add(new JLabel("Preview zoom"));
         previewZoom.setEditable(true);
-        previewZoom.setSelectedItem("100%");
+        previewZoom.setSelectedItem("Fit");
         previewZoom.addActionListener(e -> {
             if (!zoomSyncing) updatePreviewIcon();
         });
@@ -190,6 +204,15 @@ public final class Step4Layout implements WizardStep, AutoCloseable {
     }
 
     @Override
+    public boolean commitEdits() {
+        if (groupLabelUpdateTimer.isRunning()) {
+            groupLabelUpdateTimer.stop();
+            applyGroupLabelText();
+        }
+        return true;
+    }
+
+    @Override
     public void close() {
         groupLabelUpdateTimer.stop();
         deletePreviewRecords(previewRecords);
@@ -226,6 +249,14 @@ public final class Step4Layout implements WizardStep, AutoCloseable {
             showEmpty("Choose one subject for each group first.");
             return;
         }
+        if (!recordsDirty && previewFigure != null
+                && renderedData == context.chooserData
+                && renderedState.equals(previewStateKey()) && previewFilesExist()) {
+            // Keep the actual controls, scroll position and completed pixels.
+            // Export may have replaced the context's list with its own records.
+            context.layoutPanelRecords = new ArrayList<PanelRecord>(previewRecords);
+            return;
+        }
         config = context.panelConfig == null
                 ? defaultConfig(groups)
                 : context.panelConfig;
@@ -248,6 +279,8 @@ public final class Step4Layout implements WizardStep, AutoCloseable {
         header.setForeground(TEXT);
         side.add(header);
         rowOrderPanel = new RowOrderPanel(groups, config.groupLayoutRows());
+        rowOrderPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE,
+                rowOrderPanel.getPreferredSize().height));
         rowOrderPanel.setOnChange(new Runnable() {
             @Override public void run() {
                 config = config.toBuilder()
@@ -344,7 +377,7 @@ public final class Step4Layout implements WizardStep, AutoCloseable {
 
     private void applyGroupLabelText() {
         if (syncingGroupLabelControls || config == null) return;
-        String group = selected(groupLabelGroup);
+        String group = editedGroup;
         if (group.isEmpty()) return;
         config = withGroupLabelText(config, group, groupLabelText.getText());
         saveConfig();
@@ -363,8 +396,10 @@ public final class Step4Layout implements WizardStep, AutoCloseable {
     }
 
     private void syncGroupLabelText() {
+        commitEdits();
         groupLabelUpdateTimer.stop();
         String group = selected(groupLabelGroup);
+        editedGroup = group;
         syncingGroupLabelControls = true;
         try {
             boolean available = config != null && !group.isEmpty();
@@ -431,12 +466,12 @@ public final class Step4Layout implements WizardStep, AutoCloseable {
     }
 
     private JPanel buttons() {
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        JPanel buttons = new JPanel(new GridLayout(0, 2, 6, 6));
         buttons.setOpaque(false);
-        JButton spacing = new JButton("Edit spacing...");
-        JButton externalLabels = new JButton("Edit external labels...");
-        JButton annotations = new JButton("Edit annotations...");
-        JButton calibration = new JButton("Edit calibration...");
+        JButton spacing = new JButton("Spacing...");
+        JButton externalLabels = new JButton("External labels...");
+        JButton annotations = new JButton("Annotations...");
+        JButton calibration = new JButton("Calibration...");
         spacing.addActionListener(e -> {
             PanelConfig before = config;
             PanelConfig edited = LayoutEditor.edit(owner(), config,
@@ -614,6 +649,8 @@ public final class Step4Layout implements WizardStep, AutoCloseable {
                     + logicalDimension(previewFigure.getHeight())
                     + " px (2x rendered)");
             saveConfig();
+            renderedData = context.chooserData;
+            renderedState = previewStateKey();
         } catch (RuntimeException | IOException failure) {
             previewImageBoxes = Collections.emptyList();
             hoveredImageBox = null;
@@ -621,6 +658,42 @@ public final class Step4Layout implements WizardStep, AutoCloseable {
             preview.setText(failure.getMessage());
             size.setText(" ");
         }
+    }
+
+    private boolean previewFilesExist() {
+        if (previewRecords.isEmpty()) return false;
+        for (PanelRecord record : previewRecords) {
+            if (record.imageFile() == null || !record.imageFile().isFile()) return false;
+        }
+        return true;
+    }
+
+    /** Dependencies of this one in-memory preview, never a persisted source-file cache. */
+    private String previewStateKey() {
+        StringBuilder key = new StringBuilder(PanelConfigCodec.encode(context.panelConfig));
+        for (java.util.Map.Entry<String, RowImage.SubjectRow> entry
+                : context.selectedRowsByGroup.entrySet()) {
+            RowImage.SubjectRow row = entry.getValue();
+            key.append('\n').append(entry.getKey()).append('\u001f')
+                    .append(row.imageId()).append('\u001f').append(row.imageIndices());
+        }
+        for (FPBRenderer.ChannelRequest channel : context.layoutChannelRequests) {
+            key.append('\n').append(channel.channelIndex()).append('\u001f')
+                    .append(channel.name()).append('\u001f').append(channel.colour())
+                    .append('\u001f').append(channel.range());
+        }
+        for (java.util.Map.Entry<String, CalibrationOverride> entry
+                : context.calibrationOverrides.entrySet()) {
+            key.append('\n').append(entry.getKey()).append('\u001f')
+                    .append(entry.getValue().pixelWidthUm()).append('\u001f')
+                    .append(entry.getValue().pixelHeightUm());
+        }
+        for (java.util.Map.Entry<String, ImageOrientation> entry
+                : context.imageOrientations.entrySet()) {
+            key.append('\n').append(entry.getKey()).append('\u001f')
+                    .append(entry.getValue() == null ? "" : entry.getValue().token());
+        }
+        return key.toString();
     }
 
     private List<PanelRecord> buildPreviewRecords() throws IOException {
