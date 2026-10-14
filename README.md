@@ -128,6 +128,6 @@ Figure Panel Builder is released under the [BSD 3-Clause License](LICENSE). Cita
 provided in [CITATION.cff](CITATION.cff).
 
 > Malcolm, J. (2026). *Figure Panel Builder* (Version 0.3.0)
-> [Computer software]. https://github.com/Jay2owe/FigurePanelBuilder
+> [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.23365458
 
 
