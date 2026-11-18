@@ -29,7 +29,9 @@ public final class FPBParameters {
         FILENAME_TOKENS,
         SUBFOLDER,
         CSV,
-        REGEX
+        REGEX,
+        /** Labels given per image through {@link Builder#image}. */
+        EXPLICIT
     }
 
     private final File folder;
@@ -69,6 +71,9 @@ public final class FPBParameters {
     private final boolean hideDisplay;
     private final boolean quickGrid;
     private final PanelConfig panelConfig;
+    private final List<fpb.io.ImageSource> sources;
+    private final Map<fpb.io.ImageSource, String[]> imageLabels;
+    private final fpb.io.ImageLoader.ImageOpener imageOpener;
 
     private FPBParameters(Builder builder) {
         this.folder = absolute(builder.folder);
@@ -121,6 +126,13 @@ public final class FPBParameters {
         this.hideDisplay = builder.hideDisplay;
         this.quickGrid = builder.quickGrid;
         this.panelConfig = builder.panelConfig;
+        this.sources = builder.sources.isEmpty() ? null
+                : java.util.Collections.unmodifiableList(
+                        new ArrayList<fpb.io.ImageSource>(builder.sources));
+        this.imageLabels = java.util.Collections.unmodifiableMap(
+                new java.util.LinkedHashMap<fpb.io.ImageSource, String[]>(
+                        builder.imageLabels));
+        this.imageOpener = builder.imageOpener;
     }
 
     public static Builder builder(File folder) {
@@ -128,7 +140,7 @@ public final class FPBParameters {
     }
 
     public Builder toBuilder() {
-        return new Builder()
+        Builder builder = new Builder()
                 .folder(folder)
                 .recursive(recursive)
                 .excludedImages(excludedImages)
@@ -165,7 +177,15 @@ public final class FPBParameters {
                 .figureName(figureName)
                 .hideDisplay(hideDisplay)
                 .quickGrid(quickGrid)
-                .panelConfig(panelConfig);
+                .panelConfig(panelConfig)
+                .imageOpener(imageOpener);
+        if (sources != null) {
+            for (fpb.io.ImageSource source : sources) {
+                String[] labels = imageLabels.get(source);
+                builder.image(source, labels[0], labels[1], labels[2]);
+            }
+        }
+        return builder;
     }
 
     public File folder() { return folder; }
@@ -208,6 +228,11 @@ public final class FPBParameters {
     public boolean hideDisplay() { return hideDisplay; }
     public boolean quickGrid() { return quickGrid; }
     public PanelConfig panelConfig() { return panelConfig; }
+    /** Explicit images given with {@link Builder#image}; null means scan the folder. */
+    public List<fpb.io.ImageSource> sources() { return sources; }
+    /** Group, subject and section for each explicit image. */
+    public Map<fpb.io.ImageSource, String[]> imageLabels() { return imageLabels; }
+    public fpb.io.ImageLoader.ImageOpener imageOpener() { return imageOpener; }
 
     static void validate(FPBParameters parameters) {
         if (parameters == null) {
@@ -221,6 +246,11 @@ public final class FPBParameters {
                 && (parameters.metadataCsv == null || !parameters.metadataCsv.isFile())) {
             throw new IllegalArgumentException("metadata_csv does not exist: "
                     + parameters.metadataCsv);
+        }
+        if (parameters.metadataMode == MetadataMode.EXPLICIT
+                && (parameters.sources == null || parameters.quickGrid)) {
+            throw new IllegalArgumentException("Explicit image labels need at least one "
+                    + "image() and the guided route.");
         }
         if (!parameters.quickGrid && parameters.metadataMode == MetadataMode.REGEX
                 && !hasText(parameters.groupRegex)) {
@@ -620,6 +650,36 @@ public final class FPBParameters {
 
         public Builder panelConfig(PanelConfig panelConfig) {
             this.panelConfig = panelConfig;
+            return this;
+        }
+
+        private final List<fpb.io.ImageSource> sources =
+                new ArrayList<fpb.io.ImageSource>();
+        private final Map<fpb.io.ImageSource, String[]> imageLabels =
+                new java.util.LinkedHashMap<fpb.io.ImageSource, String[]>();
+        private fpb.io.ImageLoader.ImageOpener imageOpener;
+
+        /**
+         * Adds one image with its labels instead of scanning the folder; the
+         * folder then only anchors relative image IDs. Section may be empty.
+         */
+        public Builder image(fpb.io.ImageSource source, String group, String subject,
+                String section) {
+            if (source == null) throw new IllegalArgumentException("source is required");
+            if (!hasText(group) || !hasText(subject)) {
+                throw new IllegalArgumentException("group and subject are required for "
+                        + source.file());
+            }
+            if (!sources.contains(source)) sources.add(source);
+            imageLabels.put(source, new String[] { group.trim(), subject.trim(),
+                    section == null ? "" : section.trim() });
+            this.metadataMode = MetadataMode.EXPLICIT;
+            return this;
+        }
+
+        /** Supplies prepared images instead of opening files (see ImageLoader.ImageOpener). */
+        public Builder imageOpener(fpb.io.ImageLoader.ImageOpener opener) {
+            this.imageOpener = opener;
             return this;
         }
 

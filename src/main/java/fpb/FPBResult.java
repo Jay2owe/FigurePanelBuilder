@@ -112,6 +112,7 @@ public final class FPBResult {
                         parameters.calibrationOverrides());
         context.quickGridRequested = route == Route.QUICK_GRID;
         context.metadataTable = metadataTable;
+        context.imageOpener = parameters.imageOpener();
         context.chooserData = chooserData;
         context.selectedRowsByGroup =
                 new LinkedHashMap<String, RowImage.SubjectRow>(selectedRowsByGroup);

@@ -639,6 +639,8 @@ public final class FPBWizard {
 
         /** Included images only; every later step reads this table. */
         public MetadataTable metadataTable;
+        /** Host-supplied images (Java API); null opens the source files. */
+        public fpb.io.ImageLoader.ImageOpener imageOpener;
         /** Every discovered image, including those unticked in step 1. */
         public MetadataTable allImagesTable;
         public final ImagePreloader imagePreloader = new ImagePreloader();

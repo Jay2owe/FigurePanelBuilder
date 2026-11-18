@@ -46,7 +46,8 @@ public final class ChannelColour {
         if ("magenta".equals(key)) return MAGENTA;
         if ("cyan".equals(key)) return CYAN;
         if ("yellow".equals(key)) return YELLOW;
-        if ("gray".equals(key) || "grey".equals(key)) return GREY;
+        if ("gray".equals(key) || "grey".equals(key) || "grays".equals(key)
+                || "greys".equals(key)) return GREY;
         if ("white".equals(key)) return WHITE;
         throw new IllegalArgumentException("Unknown channel colour: " + name);
     }

@@ -57,7 +57,9 @@ public final class FPB {
             return quickGrid(parameters, progress);
         }
         ImageLoader.LoadResult loaded = new ImageLoader(150, 4)
-                .loadSources(includedSources(parameters),
+                .withOpener(parameters.imageOpener())
+                .loadSources(parameters.sources() != null ? parameters.sources()
+                        : includedSources(parameters),
                         ImageLoader.ZMode.fromString(parameters.zMode()), progress);
         List<ImageSource> sources = sources(loaded.planeCache());
         MetadataTable table = metadataTable(parameters, sources);
@@ -144,6 +146,18 @@ public final class FPB {
     private static MetadataTable metadataTable(FPBParameters parameters,
             List<ImageSource> sources) throws IOException {
         MetadataTable table = MetadataTable.emptySources(parameters.folder(), sources);
+        if (parameters.metadataMode() == FPBParameters.MetadataMode.EXPLICIT) {
+            for (MetadataRow row : table.rows()) {
+                String[] labels = parameters.imageLabels().get(row.source);
+                if (labels == null) {
+                    throw new IOException("No labels given for " + row.source.file());
+                }
+                row.group = labels[0];
+                row.subject = labels[1];
+                row.section = labels[2];
+            }
+            return table;
+        }
         if (parameters.metadataMode() == FPBParameters.MetadataMode.SUBFOLDER) {
             new SubfolderStrategy().apply(table);
             return table;

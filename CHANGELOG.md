@@ -11,6 +11,10 @@ All notable changes to Figure Panel Builder will be documented here. The format 
 - Save project and Open project in the wizard footer save and restore a `.fpb.xml` snapshot of
   image inclusion, metadata, channels, locked ranges, picks, calibration/orientation overrides,
   layout and export settings. Moved image folders can be relinked after a content check.
+- Java API for host plugins: `FPBParameters.Builder.image(source, group, subject, section)` lists
+  images with explicit labels instead of scanning a folder, and `imageOpener(...)` supplies
+  already-prepared images (Z subsets, deconvolved or LIF-series data) for previews and export.
+  ImageJ's `Grays` LUT name is accepted as grey.
 
 ### Fixed
 

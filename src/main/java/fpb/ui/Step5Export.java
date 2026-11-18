@@ -750,7 +750,8 @@ public final class Step5Export implements WizardStep, AutoCloseable {
                         sourcePlanes.calibration(), sourcePlanes.openedWithBioFormats(),
                         context.calibrationOverrides.get(imageId));
                 preparations.add(new PanelPreparation(sourcePlanes.source(), metadata,
-                        imageId, calibration, orientationFor(context, imageId)));
+                        imageId, calibration, orientationFor(context, imageId),
+                        context.imageOpener));
             }
         }
         return preparations;
@@ -798,7 +799,8 @@ public final class Step5Export implements WizardStep, AutoCloseable {
         checkCancelled(cancel);
         ImageLoader.LoadResult full;
         try {
-            full = new ImageLoader().loadFullResolution(preparation.source, zMode,
+            full = new ImageLoader().withOpener(preparation.opener)
+                    .loadFullResolution(preparation.source, zMode,
                     new ImageLoader.CancelCheck() {
                         @Override
                         public boolean isCancelled() {
@@ -908,7 +910,7 @@ public final class Step5Export implements WizardStep, AutoCloseable {
                     context.calibrationOverrides.get(imageId));
             PanelPreparation preparation = new PanelPreparation(
                     sourcePlanes.source(), metadata, imageId, calibration,
-                    orientationFor(context, imageId));
+                    orientationFor(context, imageId), context.imageOpener);
             String base = safe(metadata.group) + "_" + safe(metadata.subject);
             if (metadata.section != null && !metadata.section.trim().isEmpty()) {
                 base += "_" + safe(metadata.section);
@@ -1501,10 +1503,12 @@ public final class Step5Export implements WizardStep, AutoCloseable {
         final String imageId;
         final CalibrationCheck.Result calibration;
         final ImageOrientation orientation;
+        final ImageLoader.ImageOpener opener;
 
         PanelPreparation(ImageSource source, MetadataRow metadata, String imageId,
                 CalibrationCheck.Result calibration,
-                ImageOrientation orientation) {
+                ImageOrientation orientation, ImageLoader.ImageOpener opener) {
+            this.opener = opener;
             this.source = source;
             this.metadata = metadata;
             this.imageId = imageId;

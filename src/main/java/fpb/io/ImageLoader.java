@@ -109,6 +109,24 @@ public final class ImageLoader {
         }
     }
 
+    /**
+     * Supplies the image for a source instead of opening its file, so a host
+     * plugin can hand over pixels it has already prepared (a Z-slice subset,
+     * a deconvolved or reoriented image). Each call must return a new
+     * 8- or 16-bit ImagePlus; the loader closes it after reading.
+     */
+    public interface ImageOpener {
+        ImagePlus open(ImageSource source) throws IOException;
+    }
+
+    private ImageOpener opener;
+
+    /** Uses {@code opener} instead of ImageJ/Bio-Formats; null restores file opening. */
+    public ImageLoader withOpener(ImageOpener opener) {
+        this.opener = opener;
+        return this;
+    }
+
     public ImageLoader() {
         this(Binner.DEFAULT_LONG_EDGE, Runtime.getRuntime().availableProcessors());
     }
@@ -154,7 +172,7 @@ public final class ImageLoader {
             if (isLif(file)) sources.addAll(probeLifSeries(file));
             else sources.add(ImageSource.file(file));
         }
-        return Collections.unmodifiableList(normalizedSortedSources(sources));
+        return Collections.unmodifiableList(normalizedSortedSources(sources, false));
     }
 
     public LoadResult loadFiles(List<File> files, ProgressCallback callback) throws IOException {
@@ -180,7 +198,7 @@ public final class ImageLoader {
                     + "this folder has " + sources.size() + ".");
         }
         ProgressCallback progress = callback == null ? ProgressCallback.NONE : callback;
-        List<ImageSource> ordered = normalizedSortedSources(sources);
+        List<ImageSource> ordered = normalizedSortedSources(sources, opener != null);
         if (ordered.isEmpty()) {
             throw new IOException("No supported image files were found.");
         }
@@ -192,7 +210,7 @@ public final class ImageLoader {
         try {
             for (int i = 0; i < ordered.size(); i++) {
                 completion.submit(new LoadTask(i, ordered.get(i), previewLongEdge,
-                        zMode == null ? ZMode.MAX : zMode));
+                        zMode == null ? ZMode.MAX : zMode, opener));
             }
             IndexedLoad[] loaded = new IndexedLoad[ordered.size()];
             int completed = 0;
@@ -230,7 +248,7 @@ public final class ImageLoader {
 
     public LoadedImage loadImage(ImageSource source, ZMode zMode) throws IOException {
         return loadOne(source, previewLongEdge, zMode == null ? ZMode.MAX : zMode,
-                NEVER_CANCELLED);
+                NEVER_CANCELLED, opener);
     }
 
     /** Re-opens one source and retains its complete projected planes for publication export. */
@@ -252,7 +270,7 @@ public final class ImageLoader {
     public LoadResult loadFullResolution(ImageSource source, ZMode zMode,
             CancelCheck cancelCheck) throws IOException {
         LoadedImage loaded = loadOne(source, Integer.MAX_VALUE,
-                zMode == null ? ZMode.MAX : zMode, cancelCheck);
+                zMode == null ? ZMode.MAX : zMode, cancelCheck, opener);
         return assembleResult(new IndexedLoad[] { new IndexedLoad(0, loaded) });
     }
 
@@ -365,10 +383,11 @@ public final class ImageLoader {
     }
 
     private static LoadedImage loadOne(ImageSource source, int previewLongEdge, ZMode zMode,
-            CancelCheck cancelCheck) throws IOException {
+            CancelCheck cancelCheck, ImageOpener opener) throws IOException {
         checkCancelled(cancelCheck);
         File file = source.file();
-        OpenedImage opened = openImage(source);
+        OpenedImage opened = opener == null ? openImage(source)
+                : new OpenedImage(opener.open(source), false);
         ImagePlus image = opened.image;
         if (image == null) {
             throw new IOException("Could not open image: " + file.getAbsolutePath());
@@ -414,7 +433,8 @@ public final class ImageLoader {
             }
 
             int frameCount = Math.max(1, image.getNFrames());
-            ImageLayout header = ImageLayout.probe(source);
+            ImageLayout header = opener == null ? ImageLayout.probe(source)
+                    : ImageLayout.unknown();
             boolean rgbOverlay = header.rgbOverlay()
                     || (channelCount == 3 && bitDepth == 8
                     && ImageLayout.isPictureFormat(file));
@@ -773,15 +793,18 @@ public final class ImageLoader {
         return ordered;
     }
 
-    private static List<ImageSource> normalizedSortedSources(List<ImageSource> sources)
-            throws IOException {
+    private static List<ImageSource> normalizedSortedSources(List<ImageSource> sources,
+            boolean hostSupplied) throws IOException {
         List<ImageSource> ordered = new ArrayList<ImageSource>(sources.size());
         java.util.LinkedHashSet<String> keys = new java.util.LinkedHashSet<String>();
         for (ImageSource source : sources) {
             if (source == null) throw new IOException("image source list contains null");
             File file = source.file();
-            if (!file.isFile()) throw new IOException("image file does not exist: " + file);
-            if (!isSupportedImage(file)) continue;
+            // Host-supplied images need not exist as files (series, derivatives).
+            if (!hostSupplied && !file.isFile()) {
+                throw new IOException("image file does not exist: " + file);
+            }
+            if (!hostSupplied && !isSupportedImage(file)) continue;
             if (!keys.add(source.key())) {
                 throw new IOException("image source list contains a duplicate: " + source);
             }
@@ -832,18 +855,21 @@ public final class ImageLoader {
         private final ImageSource source;
         private final int previewLongEdge;
         private final ZMode zMode;
+        private final ImageOpener opener;
 
-        private LoadTask(int index, ImageSource source, int previewLongEdge, ZMode zMode) {
+        private LoadTask(int index, ImageSource source, int previewLongEdge, ZMode zMode,
+                ImageOpener opener) {
             this.index = index;
             this.source = source;
             this.previewLongEdge = previewLongEdge;
             this.zMode = zMode;
+            this.opener = opener;
         }
 
         @Override
         public IndexedLoad call() throws IOException {
             return new IndexedLoad(index, loadOne(source, previewLongEdge, zMode,
-                    NEVER_CANCELLED));
+                    NEVER_CANCELLED, opener));
         }
     }
 
