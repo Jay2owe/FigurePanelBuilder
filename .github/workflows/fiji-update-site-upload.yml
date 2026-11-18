@@ -39,9 +39,9 @@ jobs:
       IMAGEJ_UPLOAD_USER: ${{ secrets.IMAGEJ_UPLOAD_USER }}
       IMAGEJ_UPLOAD_PASSWORD: ${{ secrets.IMAGEJ_UPLOAD_PASSWORD }}
       DEFAULT_UPLOAD_USER: ""
-      ARTIFACT_GLOB: "target/FigurePanelBuilder-0.3.0.jar"
-      RELEASE_ASSET_URL: "https://github.com/Jay2owe/FigurePanelBuilder/releases/download/v0.3.0/FigurePanelBuilder-0.3.0.jar"
-      RELEASE_ASSET_SHA256: "0e6ab1eacf5a6009e17c57857f26fb3dc6029de0d64c27ca0be3cd8c375ba6ae"
+      ARTIFACT_GLOB: "target/FigurePanelBuilder-0.4.0.jar"
+      RELEASE_ASSET_URL: "https://github.com/Jay2owe/FigurePanelBuilder/releases/download/v0.4.0/FigurePanelBuilder-0.4.0.jar"
+      RELEASE_ASSET_SHA256: "0aef0f5d87c4f3be9614e2baf010d8e2ea3cf82962736dfceccb0c363e2f27ad"
       INSTALL_DIR: "plugins"
       ARTIFACT_NAME: ""
       REPLACE_GLOB: "plugins/FigurePanelBuilder-*.jar"
