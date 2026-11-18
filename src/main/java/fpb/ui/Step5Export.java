@@ -146,6 +146,27 @@ public final class Step5Export implements WizardStep, AutoCloseable {
         openFolder.addActionListener(e -> openCompletedFolder());
         cancel.setEnabled(false);
         openFolder.setEnabled(false);
+        java.util.Properties saved = context.exportSettings;
+        outputFolder.setText(saved.getProperty("folder", ""));
+        dpi.setText(saved.getProperty("dpi", "300"));
+        exportScale.setSelectedItem(saved.getProperty("scale", "1x"));
+        JCheckBox[] choices = {png, tiff, svg, panels, records, allProjectPng, allProjectTiffStacks};
+        String[] keys = {"png", "tiff", "svg", "panels", "records", "allPng", "allTiff"};
+        for (int i = 0; i < choices.length; i++)
+            choices[i].setSelected(Boolean.parseBoolean(saved.getProperty(keys[i],
+                    Boolean.toString(choices[i].isSelected()))));
+    }
+
+    @Override
+    public boolean commitEdits() {
+        context.exportSettings.setProperty("folder", outputFolder.getText());
+        context.exportSettings.setProperty("dpi", dpi.getText());
+        context.exportSettings.setProperty("scale", String.valueOf(exportScale.getSelectedItem()));
+        JCheckBox[] choices = {png, tiff, svg, panels, records, allProjectPng, allProjectTiffStacks};
+        String[] keys = {"png", "tiff", "svg", "panels", "records", "allPng", "allTiff"};
+        for (int i = 0; i < choices.length; i++)
+            context.exportSettings.setProperty(keys[i], Boolean.toString(choices[i].isSelected()));
+        return true;
     }
 
     @Override
@@ -170,7 +191,7 @@ public final class Step5Export implements WizardStep, AutoCloseable {
             outputFolder.setText((root == null ? new File(".") : root)
                     .getAbsolutePath());
         }
-        if (context != null && context.panelConfig != null) {
+        if (context != null && context.panelConfig != null && context.exportSettings.isEmpty()) {
             dpi.setText(String.valueOf(context.panelConfig.outputDpi()));
             exportScale.setSelectedItem(context.panelConfig.exportScale() + "x");
         }

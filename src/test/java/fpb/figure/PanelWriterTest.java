@@ -340,6 +340,38 @@ public class PanelWriterTest {
     }
 
     @Test
+    public void largeReductionAveragesSparsePunctaInsteadOfAliasing() throws Exception {
+        // One bright pixel per 10 x 10 block, as with sparse puncta in a
+        // full-resolution panel shrunk tenfold into a figure cell. Bilinear
+        // sampling lands between them and shows black (or, shifted, full
+        // white); the true average of each block is 255 / 100.
+        BufferedImage original = new BufferedImage(800, 800, BufferedImage.TYPE_INT_RGB);
+        for (int y = 3; y < 800; y += 10) {
+            for (int x = 3; x < 800; x += 10) original.setRGB(x, y, 0xFFFFFF);
+        }
+        File source = temp.newFile("sparse-puncta.png");
+        ImageIO.write(original, "png", source);
+        PanelRecord record = record(source, "Control", "S1", "sec1", "DAPI",
+                800, 800, 0.5, CalibrationCheck.CalibrationSource.USER_ENTERED);
+        PanelConfig config = PanelConfig.builder().cellSizePx(80)
+                .channelOrder(Arrays.asList("DAPI"))
+                .channelHeaderVisible(false).groupHeaderVisible(false)
+                .rowLabelVisible(false).annotateOverviewPanel(false)
+                .annotateIndividualPanels(false).build();
+        BufferedImage figure = PanelWriter.renderOverviewPanel(
+                Arrays.asList(record), config);
+        int left = config.marginPx();
+        int top = config.marginPx();
+        for (int y = 2; y < 78; y++) {
+            for (int x = 2; x < 78; x++) {
+                int grey = figure.getRGB(left + x, top + y) & 0xff;
+                assertTrue("cell pixel " + x + "," + y + " was " + grey,
+                        grey >= 2 && grey <= 3);
+            }
+        }
+    }
+
+    @Test
     public void overviewAnnotatesWhenIndividualAnnotationIsEnabledButNotWritten()
             throws Exception {
         File source = writeSource("annotation-fallback.png", Color.BLACK, 100, 60);

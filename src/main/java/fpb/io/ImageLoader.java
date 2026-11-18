@@ -317,9 +317,7 @@ public final class ImageLoader {
                     pooledCounts.add(new int[HistogramCache.BIN_COUNT]);
                 }
             } else if (image.channelCount() != channelCount) {
-                throw new IOException("Image " + image.sourceFile.getAbsolutePath()
-                        + " has " + image.channelCount() + " channels; expected "
-                        + channelCount + ".");
+                throw new IOException(channelMismatchMessage(loaded[0].result, image));
             }
             planeImages.add(image.toPlaneCacheImage());
             histogramImages.add(image.toHistogramCacheImage());
@@ -335,7 +333,25 @@ public final class ImageLoader {
         }
         return new LoadResult(new PlaneCache(planeImages),
                 new HistogramCache(histogramImages, pooled),
-                loaded[0].result.channelColours());
+                loaded[0].result.channelColours(), loaded[0].result.layout());
+    }
+
+    /** Explains why two images disagree, naming colour overlays when present. */
+    static String channelMismatchMessage(LoadedImage first, LoadedImage other) {
+        StringBuilder message = new StringBuilder("Image ")
+                .append(other.sourceFile.getAbsolutePath()).append(" has ")
+                .append(other.channelCount()).append(" channels; expected ")
+                .append(first.channelCount()).append(" (from ")
+                .append(first.sourceFile.getName()).append(").");
+        LoadedImage overlay = other.layout().rgbOverlay() ? other
+                : first.layout().rgbOverlay() ? first : null;
+        if (overlay != null) {
+            message.append(" ").append(overlay.sourceFile.getName())
+                    .append(" is an RGB colour picture (such as an Echo Revolution")
+                    .append(" _Merge.tif or an ImageJ _RGB.tif), not channel data.")
+                    .append(" Untick it in Images and use the multichannel file.");
+        }
+        return message.toString();
     }
 
     private static void addCounts(int[] target, int[] source) throws IOException {
@@ -364,7 +380,11 @@ public final class ImageLoader {
             int bitDepth = image.getBitDepth();
             if (bitDepth != 8 && bitDepth != 16) {
                 throw new IOException("Unsupported bit depth " + bitDepth + " for "
-                        + file.getAbsolutePath() + ". Stage 02 supports 8-bit and 16-bit grayscale images.");
+                        + file.getAbsolutePath() + (bitDepth == 24
+                        ? ". This is an RGB colour picture, not channel data; open"
+                        + " Figure Panel Builder in Fiji (with Bio-Formats) or use the"
+                        + " original multichannel image."
+                        : ". Figure Panel Builder supports 8-bit and 16-bit images."));
             }
             int channelCount = Math.max(1, image.getNChannels());
             int sliceCount = Math.max(1, image.getNSlices());
@@ -383,18 +403,26 @@ public final class ImageLoader {
                         frame, bitDepth, zMode, cancelCheck);
                 int[] binnedSize = Binner.scaledDimensions(
                         image.getWidth(), image.getHeight(), previewLongEdge);
-                short[] binned = Binner.maxBin(projected, image.getWidth(), image.getHeight(),
-                        binnedSize[0], binnedSize[1], cancelCheck);
+                // Average, not maximum: previews must look like the exported
+                // panels, which a figure or SVG viewer shows by averaging.
+                short[] binned = Binner.meanBin(projected, image.getWidth(),
+                        image.getHeight(), binnedSize[0], binnedSize[1], cancelCheck);
                 binnedPlanes.add(new PlaneCache.Plane(binnedSize[0], binnedSize[1], binned));
                 int[] counts = HistogramCache.countsFromPlane(projected, cancelCheck);
                 histogramCounts.add(counts);
                 histograms.add(HistogramCache.cumulativeFromCounts(counts));
             }
 
+            int frameCount = Math.max(1, image.getNFrames());
+            ImageLayout header = ImageLayout.probe(source);
+            boolean rgbOverlay = header.rgbOverlay()
+                    || (channelCount == 3 && bitDepth == 8
+                    && ImageLayout.isPictureFormat(file));
             return new LoadedImage(source, bitDepth, image.getWidth(), image.getHeight(),
                     image.getCalibration(), opened.bioFormats, binnedPlanes,
                     histograms, histogramCounts,
-                    channelColours(source, image, channelCount));
+                    channelColours(source, image, channelCount),
+                    new ImageLayout(channelCount, sliceCount, frameCount, rgbOverlay));
         } finally {
             image.changes = false;
             image.close();
@@ -843,12 +871,19 @@ public final class ImageLoader {
         private final PlaneCache planeCache;
         private final HistogramCache histogramCache;
         private final List<ChannelColour> channelColours;
+        private final ImageLayout firstLayout;
 
         private LoadResult(PlaneCache planeCache, HistogramCache histogramCache,
-                List<ChannelColour> channelColours) {
+                List<ChannelColour> channelColours, ImageLayout firstLayout) {
             this.planeCache = planeCache;
             this.histogramCache = histogramCache;
             this.channelColours = channelColours;
+            this.firstLayout = firstLayout == null ? ImageLayout.unknown() : firstLayout;
+        }
+
+        /** How the first image stores its channels. */
+        public ImageLayout firstLayout() {
+            return firstLayout;
         }
 
         public PlaneCache planeCache() {
@@ -885,12 +920,15 @@ public final class ImageLoader {
         private final List<HistogramCache.Histogram> histograms;
         private final List<int[]> histogramCounts;
         private final List<ChannelColour> channelColours;
+        private final ImageLayout layout;
 
         private LoadedImage(ImageSource source, int bitDepth, int sourceWidthPx,
                 int sourceHeightPx, Calibration calibration, boolean bioFormats,
                 List<PlaneCache.Plane> binnedPlanes,
                 List<HistogramCache.Histogram> histograms,
-                List<int[]> histogramCounts, List<ChannelColour> channelColours) {
+                List<int[]> histogramCounts, List<ChannelColour> channelColours,
+                ImageLayout layout) {
+            this.layout = layout == null ? ImageLayout.unknown() : layout;
             this.source = source;
             this.sourceFile = source.file();
             this.bitDepth = bitDepth;
@@ -950,6 +988,11 @@ public final class ImageLoader {
         /** The file's own colour per channel; an entry is null when none is stored. */
         public List<ChannelColour> channelColours() {
             return channelColours;
+        }
+
+        /** Channels, Z planes, time points and whether this is an RGB colour picture. */
+        public ImageLayout layout() {
+            return layout;
         }
 
         private PlaneCache.ImagePlanes toPlaneCacheImage() {

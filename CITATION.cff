@@ -14,10 +14,9 @@ authors:
     email: jamiemalcolm12@gmail.com
 repository-code: "https://github.com/Jay2owe/FigurePanelBuilder"
 url: "https://github.com/Jay2owe/FigurePanelBuilder"
-doi: "10.5281/zenodo.23365458"
 license: BSD-3-Clause
-version: "0.3.0"
-date-released: "2026-10-14"
+version: "0.4.0"
+date-released: "2026-11-18"
 keywords:
   - imagej
   - fiji

@@ -4,6 +4,27 @@ All notable changes to Figure Panel Builder will be documented here. The format 
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-11-18
+
+### Added
+
+- Save project and Open project in the wizard footer save and restore a `.fpb.xml` snapshot of
+  image inclusion, metadata, channels, locked ranges, picks, calibration/orientation overrides,
+  layout and export settings. Moved image folders can be relinked after a content check.
+
+### Fixed
+
+- Channels: RGB colour pictures (the Echo Revolution's `_Merge.tif`, ImageJ `_RGB.tif`) are
+  recognised, including tiled TIFFs. Copies saved beside real multichannel images are left out
+  automatically, so the channel count comes from the channel data instead of reading 3; when
+  only RGB pictures are present the step explains that their channels were blended on saving.
+  Mixed channel counts and channels saved as Z planes or time points are reported. Online-only
+  (cloud) `_RGB.tif`/`_Merge.tif` copies are judged by name so screening never waits on a download.
+- Assembled PNG/TIFF figures shrink each panel into its cell by area averaging, so sparse puncta
+  and fine processes no longer alias or vanish at large reductions.
+- Previews average instead of keeping block maxima, so the contrast set on screen matches the
+  exported PNG and SVG panels rather than looking brighter than any export.
+
 ## [0.3.0] - 2026-10-14
 
 ### Fixed
@@ -76,4 +97,5 @@ All notable changes to Figure Panel Builder will be documented here. The format 
 - Canvas-style Layout navigation with pointer-anchored Ctrl+wheel zoom, drag panning, and
   Shift+wheel horizontal scrolling.
 
+[0.4.0]: https://github.com/Jay2owe/FigurePanelBuilder/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Jay2owe/FigurePanelBuilder/compare/v0.2.0...v0.3.0

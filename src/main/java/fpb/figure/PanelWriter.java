@@ -474,10 +474,18 @@ public final class PanelWriter {
         int drawH = Math.max(1, (int) Math.round(image.getHeight() * scale));
         int drawX = x + (cell - drawW) / 2;
         int drawY = y + (cell - drawH) / 2;
-        // Let the final canvas transform sample the original once. Reducing to
-        // logical tile pixels first discards detail even on a scaled export;
-        // taking block maxima also brightens the raster relative to the SVG.
-        g.drawImage(image, drawX, drawY, drawW, drawH, null);
+        // Resize the original once, straight to the canvas pixels it will
+        // occupy at this export scale, by area averaging. A bilinear draw reads
+        // only ~4 source pixels per output pixel, so large reductions alias and
+        // fine bright structures appear or vanish; block maxima would brighten
+        // the raster relative to the SVG, which viewers shrink by averaging.
+        java.awt.geom.AffineTransform transform = g.getTransform();
+        int devicePixelsW = Math.max(1, (int) Math.round(
+                drawW * Math.abs(transform.getScaleX())));
+        int devicePixelsH = Math.max(1, (int) Math.round(
+                drawH * Math.abs(transform.getScaleY())));
+        g.drawImage(fpb.render.Resample.toSize(image, devicePixelsW,
+                devicePixelsH), drawX, drawY, drawW, drawH, null);
         if (report != null) {
             report.addImageBox(record, new Rectangle(drawX, drawY, drawW, drawH));
         }

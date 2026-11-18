@@ -50,7 +50,11 @@ import javax.swing.WindowConstants;
 /** Five-step wizard shell for the interactive Figure Panel Builder workflow. */
 public final class FPBWizard {
 
-    private final Context context = new Context();
+    private final Context context;
+    private final JLabel projectStatus = new JLabel("Project not saved");
+    private final JButton saveProject = new JButton("Save project...");
+    private final JButton openProject = new JButton("Open project...");
+    private boolean projectBusy;
     private final JDialog dialog;
     private final JPanel stepButtons;
     private final JPanel content;
@@ -69,6 +73,11 @@ public final class FPBWizard {
     private SwingWorker<QuickGrid.Result, String> quickGridWorker;
 
     public FPBWizard() {
+        this(new Context());
+    }
+
+    public FPBWizard(Context initial) {
+        context = initial;
         dialog = new JDialog((Frame) null, "Figure Panel Builder", true);
         dialog.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         dialog.addWindowListener(new WindowAdapter() {
@@ -170,6 +179,15 @@ public final class FPBWizard {
             }
         });
         left.add(backButton);
+        saveProject.setToolTipText("Save metadata, channels, selected sections, layout and export settings");
+        openProject.setToolTipText("Open a saved project; verify or relink its source images");
+        saveProject.addActionListener(e -> saveProject());
+        openProject.addActionListener(e -> openProject());
+        left.add(openProject);
+        left.add(saveProject);
+        if (context.projectFile != null) projectStatus.setText("Opened: " + context.projectFile.getName());
+        projectStatus.setToolTipText("The last confirmed saved snapshot; save again after making edits");
+        footer.add(projectStatus, BorderLayout.NORTH);
         footer.add(left, BorderLayout.WEST);
 
         JPanel right = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 8, 0));
@@ -415,6 +433,8 @@ public final class FPBWizard {
         boolean exportRunning = isExportRunning();
         boolean navigationEnabled = navigationEnabledWhile(
                 exportRunning || isQuickGridRunning());
+        saveProject.setEnabled(navigationEnabled && !projectBusy);
+        openProject.setEnabled(navigationEnabled && !projectBusy);
         backButton.setVisible(backVisibleForStep(stepIndex));
         backButton.setEnabled(navigationEnabled);
         cancelButton.setEnabled(!exportRunning);
@@ -500,6 +520,74 @@ public final class FPBWizard {
                 ? "Return to the previous window size" : "Use the whole screen");
     }
 
+    private void saveProject() {
+        if (!steps[stepIndex].commitEdits()) return;
+        if (!steps[steps.length - 1].commitEdits()) return;
+        javax.swing.JFileChooser picker = new javax.swing.JFileChooser(context.folder);
+        picker.setSelectedFile(context.projectFile == null
+                ? new java.io.File(context.folder, "figure-project.fpb.xml") : context.projectFile);
+        if (picker.showSaveDialog(dialog) != javax.swing.JFileChooser.APPROVE_OPTION) return;
+        final java.io.File target = picker.getSelectedFile();
+        if (target.exists() && !target.equals(context.projectFile)
+                && JOptionPane.showConfirmDialog(dialog, "Replace " + target.getName() + "?",
+                        "Save project", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
+        final java.util.Properties snapshot;
+        try { snapshot = FigureProjectIO.capture(context); }
+        catch (RuntimeException failure) { projectFailure(failure); return; }
+        projectBusy = true; projectStatus.setText("Saving project and checking sources..."); updateButtons();
+        new SwingWorker<Void, Void>() {
+            protected Void doInBackground() throws Exception {
+                FigureProjectIO.save(snapshot, target); return null;
+            }
+            protected void done() {
+                projectBusy = false;
+                try {
+                    get(); context.projectFile = target;
+                    projectStatus.setText("Last saved: " + target.getName() + " at "
+                            + java.time.LocalTime.now().withNano(0));
+                } catch (Exception failure) { projectFailure(failure); }
+                updateButtons();
+            }
+        }.execute();
+    }
+
+    private void openProject() {
+        javax.swing.JFileChooser picker = new javax.swing.JFileChooser(context.folder);
+        if (picker.showOpenDialog(dialog) == javax.swing.JFileChooser.APPROVE_OPTION)
+            loadProject(picker.getSelectedFile(), null);
+    }
+
+    private void loadProject(final java.io.File file, final java.io.File root) {
+        projectBusy = true; projectStatus.setText("Checking saved project sources..."); updateButtons();
+        new SwingWorker<Context, Void>() {
+            protected Context doInBackground() throws Exception { return FigureProjectIO.load(file, root); }
+            protected void done() {
+                projectBusy = false; updateButtons();
+                try {
+                    Context loaded = get();
+                    projectStatus.setText("Opened project in another window");
+                    new FPBWizard(loaded).show();
+                } catch (Exception failure) {
+                    projectFailure(failure);
+                    if (JOptionPane.showConfirmDialog(dialog,
+                            "Locate the original image folder? Its files must match the saved fingerprints.",
+                            "Relink project sources", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
+                        javax.swing.JFileChooser picker = new javax.swing.JFileChooser();
+                        picker.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
+                        if (picker.showOpenDialog(dialog) == javax.swing.JFileChooser.APPROVE_OPTION)
+                            loadProject(file, picker.getSelectedFile());
+                    }
+                }
+            }
+        }.execute();
+    }
+
+    private void projectFailure(Exception failure) {
+        Throwable cause = failure.getCause() == null ? failure : failure.getCause();
+        projectStatus.setText("Project operation failed; previous saved file retained");
+        JOptionPane.showMessageDialog(dialog, cause.getMessage(), "Figure project", JOptionPane.ERROR_MESSAGE);
+    }
+
     private void cancel() {
         if (!wizardMayClose(isExportRunning())) {
             JOptionPane.showMessageDialog(dialog,
@@ -509,9 +597,9 @@ public final class FPBWizard {
                     "Figure Panel Builder", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
-        if (context.tableHandEdited) {
+        if (context.folder != null) {
             int result = JOptionPane.showConfirmDialog(dialog,
-                    "Discard the edited metadata table?",
+                    "Close this window? Changes since the last Save project will be lost.",
                     "Figure Panel Builder", JOptionPane.OK_CANCEL_OPTION,
                     JOptionPane.QUESTION_MESSAGE);
             if (result != JOptionPane.OK_OPTION) return;
@@ -542,6 +630,9 @@ public final class FPBWizard {
     }
 
     public static final class Context {
+        public java.io.File projectFile;
+        public String projectRevision = "";
+        public final java.util.Properties exportSettings = new java.util.Properties();
         interface InvalidationListener {
             void invalidatedAfter(int sourceStepIndex);
         }

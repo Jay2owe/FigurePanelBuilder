@@ -54,6 +54,7 @@ public final class Step1Images implements WizardStep {
     private final JLabel summaryLabel;
     private final JButton retryFolderButton;
     private boolean loading;
+    private boolean firstShow = true;
     private File retryFolder;
     private boolean retryRecursiveFallback;
     private SwingWorker<FolderScan, Void> folderWorker;
@@ -281,7 +282,12 @@ public final class Step1Images implements WizardStep {
 
     @Override
     public void onShow() {
-        if (context.quickGridRequested && context.folder != null) {
+        boolean restoring = firstShow && context.projectFile != null;
+        firstShow = false;
+        if (restoring) {
+            folderField.setText(context.folder.getAbsolutePath());
+        }
+        if (!restoring && context.quickGridRequested && context.folder != null) {
             context.quickGridRequested = false;
             context.invalidateGuidedDownstream(0);
             // Keep the user's ticks and labels; reload only when none exist.

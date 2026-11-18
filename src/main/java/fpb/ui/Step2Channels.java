@@ -9,6 +9,7 @@
 package fpb.ui;
 
 import fpb.FPBParameters;
+import fpb.io.ImageLayout;
 import fpb.io.ImageLoader;
 import fpb.io.ImageSource;
 import fpb.meta.MetadataRow;
@@ -59,7 +60,13 @@ public final class Step2Channels implements WizardStep {
     private boolean detectionFailed;
     private boolean detectionInProgress;
     private List<ChannelColour> detectedColours = new ArrayList<ChannelColour>();
-    private SwingWorker<List<ChannelColour>, Void> detectionWorker;
+    private ImageLayout detectedLayout = ImageLayout.unknown();
+    private String screeningNotice = "";
+    private List<ImageSource> lastScreenedSources = new ArrayList<ImageSource>();
+    /** Overlays already left out once; a user who re-ticks one keeps it. */
+    private final java.util.Set<ImageSource> autoLeftOut =
+            new java.util.HashSet<ImageSource>();
+    private SwingWorker<ImageLoader.LoadedImage, Void> detectionWorker;
 
     public Step2Channels(FPBWizard.Context context) {
         this(context, null, null);
@@ -228,6 +235,7 @@ public final class Step2Channels implements WizardStep {
 
     @Override
     public void onShow() {
+        screenIncludedImages();
         ImageSource source = firstSource();
         if (source == null || !source.equals(lastSource) || detectionFailed) {
             if (source != null
@@ -343,6 +351,7 @@ public final class Step2Channels implements WizardStep {
     private void detectChannels(ImageSource source) {
         List<ChannelColour> colours = new ArrayList<ChannelColour>();
         for (int i = 0; i < 3; i++) colours.add(null);
+        ImageLayout layout = ImageLayout.unknown();
         detectionFailed = false;
         detectionInProgress = false;
         if (source != null && source.file().isFile()) {
@@ -350,15 +359,20 @@ public final class Step2Channels implements WizardStep {
                 ImageLoader.LoadResult preloaded = context.imagePreloader.readyResult(
                         currentSources(), ImageLoader.ZMode.fromString(
                                 context.zHandling));
-                colours = preloaded == null
-                        ? new ImageLoader().loadImage(source).channelColours()
-                        : preloaded.channelColours();
+                if (preloaded == null) {
+                    ImageLoader.LoadedImage loaded = new ImageLoader().loadImage(source);
+                    colours = loaded.channelColours();
+                    layout = loaded.layout();
+                } else {
+                    colours = preloaded.channelColours();
+                    layout = preloaded.firstLayout();
+                }
             } catch (IOException failure) {
                 showDetectionFailure(source, failure);
                 return;
             }
         }
-        showDetectionSuccess(colours);
+        showDetectionSuccess(colours, layout);
     }
 
     private void startDetection(final ImageSource source) {
@@ -381,11 +395,11 @@ public final class Step2Channels implements WizardStep {
         recoveryDetail.setVisible(true);
         recoveryActions.setVisible(false);
 
-        final SwingWorker<List<ChannelColour>, Void> worker =
-                new SwingWorker<List<ChannelColour>, Void>() {
+        final SwingWorker<ImageLoader.LoadedImage, Void> worker =
+                new SwingWorker<ImageLoader.LoadedImage, Void>() {
             @Override
-            protected List<ChannelColour> doInBackground() throws Exception {
-                return new ImageLoader().loadImage(source).channelColours();
+            protected ImageLoader.LoadedImage doInBackground() throws Exception {
+                return new ImageLoader().loadImage(source);
             }
 
             @Override
@@ -394,7 +408,8 @@ public final class Step2Channels implements WizardStep {
                 detectionInProgress = false;
                 if (isCancelled()) return;
                 try {
-                    showDetectionSuccess(get());
+                    ImageLoader.LoadedImage loaded = get();
+                    showDetectionSuccess(loaded.channelColours(), loaded.layout());
                 } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
                     showDetectionFailure(source, new IOException(
@@ -412,23 +427,144 @@ public final class Step2Channels implements WizardStep {
         worker.execute();
     }
 
-    private void showDetectionSuccess(List<ChannelColour> colours) {
+    private void showDetectionSuccess(List<ChannelColour> colours,
+            ImageLayout layout) {
         detectionFailed = false;
         detectionInProgress = false;
         detectedColours = colours == null
                 ? new ArrayList<ChannelColour>()
                 : new ArrayList<ChannelColour>(colours);
+        detectedLayout = layout == null ? ImageLayout.unknown() : layout;
         context.detectedChannelCount = Math.max(1, detectedColours.size());
         ensureSettings();
         boolean fromFile = false;
         for (ChannelColour colour : detectedColours) fromFile |= colour != null;
         detectedLabel.setText("Detected " + context.detectedChannelCount
-                + " channels in the first image"
+                + (context.detectedChannelCount == 1 ? " channel" : " channels")
+                + " in the first image"
                 + (fromFile ? "; starting colours were read from the file" : "")
                 + ". The arrows change the panel order.");
-        recoveryDetail.setText("");
-        recoveryDetail.setVisible(false);
+        String notice = layoutNotice(detectedLayout, firstSource());
+        if (!screeningNotice.isEmpty()) {
+            notice = notice.isEmpty() ? screeningNotice
+                    : screeningNotice + "<br><br>" + notice;
+        }
+        if (!autoLeftOut.isEmpty() && detectedColours.size() <= 1) {
+            notice += "<br><br>" + SEPARATE_CHANNEL_FILES_HINT;
+        }
+        recoveryDetail.setText(notice.isEmpty() ? ""
+                : "<html><body style='width: 760px'>" + notice + "</body></html>");
+        recoveryDetail.setVisible(!notice.isEmpty());
         recoveryActions.setVisible(false);
+    }
+
+    static final String SEPARATE_CHANNEL_FILES_HINT = "<b>The remaining images have "
+            + "1 channel each.</b> If they are separate channels of each sample (for "
+            + "example <i>_DAPI</i>, <i>_FITC</i>, <i>_TX RED</i>, <i>_CY 3</i>), combine "
+            + "them into one composite TIFF per sample first: in Fiji, Image &gt; Color "
+            + "&gt; Merge Channels with <i>Create composite</i> ticked, then save as TIFF.";
+
+    /** Plain-language warning when the first image's channels are not real channel data. */
+    static String layoutNotice(ImageLayout layout, ImageSource source) {
+        if (layout == null) return "";
+        String name = source == null ? "The first image"
+                : escapeHtml(source.file().getName());
+        if (layout.rgbOverlay()) {
+            return "<b>" + name + " is an RGB colour picture, not channel data.</b> "
+                    + "Files such as the Echo Revolution's <i>_Merge.tif</i> or "
+                    + "ImageJ's <i>_RGB.tif</i> blend every channel into red, green "
+                    + "and blue when saved, so only those 3 colours can be shown "
+                    + "and the original channels cannot be separated or given their "
+                    + "own display ranges. Use the per-channel files (for example "
+                    + "<i>_DAPI</i>, <i>_FITC</i>, <i>_TX RED</i>, <i>_CY 3</i>) "
+                    + "combined into one composite TIFF: in Fiji, "
+                    + "Image &gt; Color &gt; Merge Channels with <i>Create composite</i> "
+                    + "ticked, then save as TIFF.";
+        }
+        if (layout.planesWithoutChannelAxis()) {
+            boolean z = layout.zPlanes() > 1;
+            int planes = z ? layout.zPlanes() : layout.timePoints();
+            return "<b>" + name + " has 1 channel and " + planes
+                    + (z ? " Z planes" : " time points")
+                    + ", with no channel axis.</b> If those planes are really "
+                    + "channels, the file lost its dimensions when it was saved: "
+                    + "in Fiji use Image &gt; Hyperstacks &gt; Re-order Hyperstack "
+                    + "to make them channels, then save as TIFF. Otherwise "
+                    + (z ? "the planes are combined by the Z handling below."
+                    : "only the first time point is used.");
+        }
+        return "";
+    }
+
+    /**
+     * Reads the header of every included TIFF. RGB colour copies saved beside
+     * real multichannel images are left out (they would otherwise set the
+     * channel count to 3 or stop loading); mixed channel counts are reported.
+     */
+    private void screenIncludedImages() {
+        List<ImageSource> sources = currentSources();
+        if (sources.equals(lastScreenedSources)) return;
+        screeningNotice = "";
+        List<ImageSource> overlays = new ArrayList<ImageSource>();
+        int judgedByName = 0;
+        java.util.Map<Integer, List<ImageSource>> byCount =
+                new java.util.TreeMap<Integer, List<ImageSource>>();
+        for (ImageSource source : sources) {
+            ImageLayout layout = ImageLayout.probe(source);
+            boolean offlineCopy = !source.isSeries()
+                    && ImageLoader.isOfflinePlaceholder(source.file())
+                    && ImageLayout.namedLikeRgbCopy(source.file());
+            if (layout.rgbOverlay() || offlineCopy) {
+                overlays.add(source);
+                if (offlineCopy) judgedByName++;
+            } else if (layout.channels() != ImageLayout.UNKNOWN) {
+                Integer key = Integer.valueOf(layout.channels());
+                if (!byCount.containsKey(key)) {
+                    byCount.put(key, new ArrayList<ImageSource>());
+                }
+                byCount.get(key).add(source);
+            }
+        }
+        boolean hasChannelData = overlays.size() < sources.size();
+        overlays.removeAll(autoLeftOut);
+        if (!overlays.isEmpty() && hasChannelData && context.allImagesTable != null) {
+            java.util.Set<ImageSource> leaveOut =
+                    new java.util.HashSet<ImageSource>(overlays);
+            autoLeftOut.addAll(overlays);
+            for (MetadataRow row : context.allImagesTable.rows()) {
+                if (leaveOut.contains(row.source)) row.included = false;
+            }
+            context.metadataTable = context.allImagesTable.includedTable();
+            context.invalidateGuidedDownstream(1);
+            screeningNotice = "<b>Left out " + overlays.size() + " RGB colour "
+                    + (overlays.size() == 1 ? "copy" : "copies") + "</b> (for example "
+                    + escapeHtml(overlays.get(0).file().getName()) + "): they are "
+                    + "flattened red/green/blue pictures of the channels, not channel "
+                    + "data. Tick them again under Images to use them."
+                    + (judgedByName == 0 ? "" : " " + judgedByName
+                    + (judgedByName == 1 ? " is" : " are") + " online-only and "
+                    + (judgedByName == 1 ? "was" : "were") + " judged by the "
+                    + "<i>_RGB</i>/<i>_Merge</i> name without downloading.");
+            sources = currentSources();
+        }
+        if (byCount.size() > 1) {
+            StringBuilder counts = new StringBuilder();
+            for (java.util.Map.Entry<Integer, List<ImageSource>> entry
+                    : byCount.entrySet()) {
+                if (counts.length() > 0) counts.append("; ");
+                counts.append(entry.getKey()).append(entry.getKey() == 1
+                        ? " channel in " : " channels in ")
+                        .append(entry.getValue().size()).append(" (for example ")
+                        .append(escapeHtml(entry.getValue().get(0).file().getName()))
+                        .append(")");
+            }
+            String mixed = "<b>The included images have different channel counts:</b> "
+                    + counts + ". Every image in a figure needs the same channels; "
+                    + "untick the ones that do not match under Images.";
+            screeningNotice = screeningNotice.isEmpty() ? mixed
+                    : screeningNotice + "<br><br>" + mixed;
+        }
+        lastScreenedSources = sources;
     }
 
     private void showDetectionFailure(ImageSource source, IOException failure) {

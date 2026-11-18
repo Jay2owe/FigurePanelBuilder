@@ -1,5 +1,13 @@
 # Figure Panel Builder
 
+## Save and reopen a figure
+
+Use **Save project** in the wizard footer to save a `.fpb.xml` project containing image inclusion, metadata, channel order/colours, locked display ranges, chosen sections, calibration/orientation overrides, panel layout and export settings. **Open project** restores that snapshot. Save explicitly after further edits.
+
+Images stay in their source folder. If the folder moves, Open project offers relinking and checks the recorded file contents before accepting replacements. Changed or missing sources produce a clear error. Preview caches are regenerated. Export destinations inside the source folder follow a relinked folder.
+
+Focused check: `mvn -Denforcer.skip=true -Dtest=FigureProjectIOTest,FPBWizardTest,ExportRegressionTest test`.
+
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21933265.svg)](https://doi.org/10.5281/zenodo.21933265)
 
 Figure Panel Builder is an ImageJ/Fiji plugin for building publication figure panels from a folder
@@ -54,7 +62,7 @@ an ImageJ or Bio-Formats open call already in progress must return before cancel
 
 ## Use In Fiji
 
-Figure Panel Builder requires [Fiji](https://fiji.sc/) with Bio-Formats. Download `FigurePanelBuilder-0.3.0.jar` from the
+Figure Panel Builder requires [Fiji](https://fiji.sc/) with Bio-Formats. Download `FigurePanelBuilder-0.4.0.jar` from the
 [latest GitHub release](https://github.com/Jay2owe/FigurePanelBuilder/releases/latest), copy it into
 Fiji's `plugins` folder, restart Fiji, then run
 `Plugins > Figure Panel Builder`. The guided wizard supports folder loading, metadata labelling,
@@ -118,16 +126,28 @@ For development checks, install `scripts/contracts-requirements.txt`, then run
 for ownership checks and the complete Maven build. These Python tools are development-only;
 the Fiji plugin retains its Java-only runtime.
 
-Assembled PNG and TIFF figures sample the full-resolution panel images directly at the chosen
-export scale. Increasing export scale adds output pixels; changing dpi sets printed size.
-Images are not first reduced to the layout tile size or combined by taking block maxima.
+The current [software alignment audit](docs/software-alignment.md) records supported workflows,
+performance budgets, verified checks and remaining gaps. To repeat the Fiji runtime check, copy
+`src/test/resources/fixtures/basic/Control_S3.tif` into an isolated `input` folder, set
+`FPB_SMOKE_HOME` to its parent, and run `scripts/deploy_smoke.groovy` through Fiji with
+Java 11 and `--default-gc --mem=512m --headless --console --run`. Outputs go under
+`input/AI_Exports`; remove the isolated inputs and outputs after checking `runtime.json`.
+
+Assembled PNG and TIFF figures resize the full-resolution panel images once, directly to the
+pixels each cell occupies at the chosen export scale, by area averaging (enlargement repeats
+pixels). Increasing export scale adds output pixels; changing dpi sets printed size. Images are
+not combined by taking block maxima, and on-screen previews average in the same way, so the
+contrast seen while choosing matches the exported PNG and SVG panels.
+
+RGB colour pictures, such as the Echo Revolution's `_Merge.tif` or ImageJ's `_RGB.tif`, hold
+only red, green and blue: their original channels were blended when they were saved. Use a
+multichannel composite TIFF instead; the Channels step leaves RGB copies out when the folder also
+holds channel data.
 
 ## License and Citation
 
 Figure Panel Builder is released under the [BSD 3-Clause License](LICENSE). Citation metadata is
 provided in [CITATION.cff](CITATION.cff).
 
-> Malcolm, J. (2026). *Figure Panel Builder* (Version 0.3.0)
-> [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.23365458
-
-
+> Malcolm, J. (2026). *Figure Panel Builder* (Version 0.4.0)
+> [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.21933265

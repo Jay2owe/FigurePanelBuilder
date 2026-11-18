@@ -19,20 +19,34 @@ import static org.junit.Assert.assertTrue;
 public class BinnerTest {
 
     @Test
-    public void maxBinPreservesPunctaPeak() throws Exception {
+    public void previewPlanesAverageLikeExportedFigures() throws Exception {
         File puncta = fixture("puncta.tif");
 
         ImageLoader.LoadedImage loaded =
                 new ImageLoader(150, 1).loadImage(puncta);
         short[] binned = loaded.binnedPlane(0).pixels();
 
-        int max = unsignedMax(binned);
-        assertEquals(60000, max, 600);
+        // A preview that kept block maxima showed puncta far brighter than
+        // any exported panel or SVG at the same size; averages match them.
+        assertTrue(unsignedMax(binned) < 60000 * 0.99);
+    }
 
+    @Test
+    public void meanBinMatchesReferenceAreaAverage() {
         short[] source = new short[300 * 300];
         source[77 * 300 + 123] = (short) 60000;
-        short[] averaged = areaAverage(source, 300, 300, 150, 150);
-        assertTrue(unsignedMax(averaged) < 60000 * 0.99);
+        source[10 * 300 + 10] = (short) 65535;
+        assertTrue(java.util.Arrays.equals(areaAverage(source, 300, 300, 150, 150),
+                Binner.meanBin(source, 300, 300, 150, 150)));
+        assertEquals(15000, Binner.meanBin(source, 300, 300, 150, 150)[38 * 150 + 61]
+                & 0xFFFF);
+    }
+
+    @Test
+    public void maxBinPreservesPunctaPeak() {
+        short[] source = new short[300 * 300];
+        source[77 * 300 + 123] = (short) 60000;
+        assertEquals(60000, unsignedMax(Binner.maxBin(source, 300, 300, 150, 150)));
     }
 
     @Test

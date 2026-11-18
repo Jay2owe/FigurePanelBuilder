@@ -83,6 +83,50 @@ public final class Binner {
         return dest;
     }
 
+    /** Downsample by averaging each source block, as a viewer does when it shrinks an image. */
+    public static short[] meanBin(short[] source, int sourceWidth, int sourceHeight,
+            int destWidth, int destHeight) {
+        try {
+            return meanBin(source, sourceWidth, sourceHeight, destWidth, destHeight,
+                    ImageLoader.NEVER_CANCELLED);
+        } catch (IOException impossible) {
+            throw new IllegalStateException(impossible);
+        }
+    }
+
+    static short[] meanBin(short[] source, int sourceWidth, int sourceHeight,
+            int destWidth, int destHeight, ImageLoader.CancelCheck cancelCheck)
+            throws IOException {
+        if (source == null) throw new IllegalArgumentException("source plane is null");
+        requirePositive("sourceWidth", sourceWidth);
+        requirePositive("sourceHeight", sourceHeight);
+        requirePositive("destWidth", destWidth);
+        requirePositive("destHeight", destHeight);
+        if (source.length != sourceWidth * sourceHeight) {
+            throw new IllegalArgumentException("source length does not match dimensions");
+        }
+        short[] dest = new short[destWidth * destHeight];
+        for (int dy = 0; dy < destHeight; dy++) {
+            ImageLoader.checkCancelled(cancelCheck);
+            int y0 = dy * sourceHeight / destHeight;
+            int y1 = Math.min(sourceHeight,
+                    Math.max(y0 + 1, (dy + 1) * sourceHeight / destHeight));
+            for (int dx = 0; dx < destWidth; dx++) {
+                int x0 = dx * sourceWidth / destWidth;
+                int x1 = Math.min(sourceWidth,
+                        Math.max(x0 + 1, (dx + 1) * sourceWidth / destWidth));
+                long sum = 0L;
+                for (int y = y0; y < y1; y++) {
+                    int offset = y * sourceWidth;
+                    for (int x = x0; x < x1; x++) sum += source[offset + x] & 0xFFFF;
+                }
+                long count = (long) (y1 - y0) * (x1 - x0);
+                dest[dy * destWidth + dx] = (short) ((sum + count / 2) / count);
+            }
+        }
+        return dest;
+    }
+
     /**
      * Fits a rendered image to exact dimensions using per-component maximum
      * binning. When a target dimension is larger than its source dimension,

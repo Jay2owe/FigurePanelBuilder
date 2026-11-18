@@ -86,6 +86,53 @@ public class Step2ChannelsTest {
         assertEquals(1, step.channelSettings().get(0).sourceIndex);
     }
 
+    @Test
+    public void rgbMergeCopiesBesideFourChannelImagesAreLeftOut() throws Exception {
+        // Echo Revolution folders hold an 8-bit RGB "_Merge.tif" beside the
+        // real channels; when it sorted first, only 3 channels were detected.
+        File root = temp.newFolder("echo");
+        File merge = new File(root, "Control_S0_Merge.tif");
+        File channels = new File(root, "Control_S1.tif");
+        saveComposite(channels, java.awt.Color.BLUE, java.awt.Color.GREEN,
+                java.awt.Color.RED, java.awt.Color.YELLOW);
+        ij.ImagePlus rgb = ij.IJ.openImage(channels.getAbsolutePath()).flatten();
+        assertTrue(new ij.io.FileSaver(rgb).saveAsTiff(merge.getAbsolutePath()));
+        FPBWizard.Context context = new FPBWizard.Context();
+        context.allImagesTable = new MetadataTable(root, Arrays.asList(
+                new MetadataRow(merge, "Control", "S0", ""),
+                new MetadataRow(channels, "Control", "S1", "")));
+        context.metadataTable = context.allImagesTable.includedTable();
+        Step2Channels step = new Step2Channels(context);
+
+        step.onShow();
+
+        assertEquals(4, step.detectedChannelCount());
+        assertEquals(1, context.metadataTable.rows().size());
+        assertFalse(context.allImagesTable.rows().get(0).included);
+        assertTrue(step.detectionMessage(),
+                step.detectionMessage().contains("Left out 1 RGB colour copy"));
+        assertTrue(step.canAdvance());
+
+        // A user who ticks it again on purpose keeps it.
+        context.allImagesTable.rows().get(0).included = true;
+        context.metadataTable = context.allImagesTable.includedTable();
+        step.onShow();
+        assertTrue(context.allImagesTable.rows().get(0).included);
+    }
+
+    @Test
+    public void rgbPictureNoticeExplainsTheChannelsAreBlended() {
+        String notice = Step2Channels.layoutNotice(
+                new fpb.io.ImageLayout(3, 1, 1, true),
+                fpb.io.ImageSource.file(new File("SCN_TAM1_Merge.tif")));
+        assertTrue(notice.contains("SCN_TAM1_Merge.tif is an RGB colour picture"));
+        assertTrue(notice.contains("Create composite"));
+        assertEquals("", Step2Channels.layoutNotice(
+                new fpb.io.ImageLayout(4, 1, 1, false), null));
+        assertTrue(Step2Channels.layoutNotice(new fpb.io.ImageLayout(1, 4, 1, false),
+                null).contains("4 Z planes"));
+    }
+
     private static void saveComposite(File file, java.awt.Color... colours)
             throws Exception {
         ij.ImageStack stack = new ij.ImageStack(8, 8);
